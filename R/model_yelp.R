@@ -6,6 +6,7 @@ library(purrr)
 library(glue)
 library(readr)
 library(lubridate)
+library(tis)
 
 filter_biz <- function(dat, businesses_to_keep) {
   dplyr::inner_join(dat, businesses_to_keep, by = "business_id")
@@ -49,6 +50,14 @@ plot_prophet_facets <- function(models, ylabel) {
 }
 
 
+yyyymm_to_date <- . %>% as.character() %>% as.Date(format = "%Y%m%d")
+
+get_holidays <- function(years) {
+  hol_vec <- holidays(businessOnly = FALSE, board = TRUE, years = years)
+  tibble(holiday = names(hol_vec), ds = yyyymm_to_date(hol_vec))
+}
+
+
 DATA_DIR <- "../data"
 MIN_REVIEWS_IN_2017 <- 300
 
@@ -89,11 +98,13 @@ daily_review_counts_plot <- state_review_values_by_date %>%
   facet_wrap(~state, scales = "free_y") +
   theme_bw()
 
+hols <- get_holidays(unique(year(state_review_values_by_date$date)))
+
 models <- state_review_values_by_date %>%
   rename(ds = date, y = reviews) %>%
   select(-mean_stars) %>%
   group_by(state) %>%
-  do(model = prophet(df = .))
+  do(model = prophet(df = ., holidays = hols))
 
 models$future <- lapply(models$model, function(m) make_future_dataframe(m, 1000))
 models$forecast <- Map(predict, models$model, models$future)
