@@ -14,3 +14,8 @@ to see if that ups the aggression.
 It looks good! super spikes down around holidays in a few states, which reflects the actual behavior. 
 We should make sure it's actually spiking down on the right days... but it looks promising. Keep
 this change.
+
+Ah! But they're not carried on into the out-of-sample fit. I must need to add the same holidays into
+the future dataframe. Do that next.
+
+* Can we predict how many cool/useful/funny ratings a review will get (or whether it will get any?)
