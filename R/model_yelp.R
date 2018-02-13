@@ -121,10 +121,15 @@ state_codes_map <- c("AZ" = "Arizona",
                      "WI" = "Wisconsin") %>%
   tibble(state_code = names(.), state = .)
 
+
+x_date_scale <- list(scale_x_date(date_breaks = "1 year",
+                                  labels = function(b) format(b, "%Y")))
+
 #' Common ggplot elements of simple raw timeseries plots.
 facet_pt_state_date <- list(geom_point(aes(x = date)),
                             facet_wrap(~state, scales = "free_y"),
-                            theme_bw())
+                            theme_bw(),
+                            xlab("Date"))
 
 #' Common states filter
 additional_states_filter <- . %>% filter(TRUE) ##filter(state %in% c("AZ", "PA"))
@@ -174,10 +179,13 @@ state_review_values_by_date <- businesses_and_reviews %>%
 ## Vanilla plots of daily values.
 .daily_avg_stars_plot <- state_review_values_by_date %>%
   ggplot(aes(y = mean_stars)) +
-  facet_pt_state_date
+  facet_pt_state_date +
+  x_date_scale
 .daily_review_counts_plot <- state_review_values_by_date %>%
   ggplot(aes(y = reviews)) +
-  facet_pt_state_date
+  facet_pt_state_date +
+  x_date_scale +
+  ylab("# reviews on day")
 
 ## Modeling.
 ##

@@ -1,7 +1,7 @@
 ---
 title: "Yelp Review Frequency"
 author: "Maxwell Peterson"
-output: html_document
+output: pdf_document
 bibliography: yelp.bib
 ---
 
@@ -10,7 +10,11 @@ bibliography: yelp.bib
 ```{r include = FALSE, echo = FALSE}
   NMIN_TO_COUNT <- 100
   fmt_text_date <- function(dt) format(dt, "%B %d, %Y")
-  knitr::opts_chunk$set(fig.width = 14, fig.height = 8) 
+  knitr::opts_chunk$set(fig.width = 22, fig.height = 12)
+  pdf_gg_facet_theme <- list(theme(strip.text.x = element_text(size = 22),
+                                   axis.text = element_text(size = 22),
+                                   axis.text.x = element_text(angle = 90),
+                                   axis.title = element_text(size = 28)))
 ```
 
 The number of reviews posted to Yelp per day is a proxy to
@@ -36,16 +40,19 @@ Specifically, we only analyze states with `r MIN_REVIEWS_IN_YEAR` or more
 reviews in the year `r YEAR`.  These are:
 ```{r include = TRUE, echo = FALSE, results = "asis"}
 xtable::xtable(.states_to_use_counts, align = "llr") %>%
-  print(type = "html", include.rownames = FALSE)
+  print(type = "latex", include.rownames = FALSE, comment = FALSE)
 ```
 
 Going forward, we only use these states.
-	
+
+\pagebreak
+      	
 ### Reviews Per Day
 Reviews per day per state all-time activity.
 Note that each y axis is different.
-```{r include = TRUE, echo = FALSE}
-  .daily_review_counts_plot
+
+```{r include = TRUE, echo = FALSE, dpi = 70}
+  .daily_review_counts_plot + pdf_gg_facet_theme
 ```
 
 Observe:
@@ -66,7 +73,12 @@ Observe:
         [@qype_merger], and the movement up in Baden-Wurttemburg happens around 2012! But
         for whatever reason, that doesn't continue.
 
-* There are infrequent, but large spikes downward in reviews posted
+* Large, infrequent spikes downward in reviews posted
 
-    This is most obvious in Arizona, but can be observed in many states, including
+    This is most obvious in Arizona, but is the case in many states, including
     the two Canadian provinces. These are probably the big winter holidays.
+
+
+
+
+*****
