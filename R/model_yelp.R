@@ -7,11 +7,8 @@ library(glue)
 library(readr)
 library(lubridate)
 library(tis)
-
-#' Only keep the business IDs in businesses_to_use
-filter_biz <- function(dat, businesses_to_use) {
-  dplyr::inner_join(dat, businesses_to_use, by = "business_id")
-}
+library(feather)
+library(assertr)
 
 #' Read csv_basename from elsewhere-defined DATA_DIR
 read_dat <- function(csv_basename) {
@@ -34,9 +31,9 @@ copy_prophet_plot <- list(geom_ribbon(aes(ymin = yhat_lower,
 plot_prophet_facets <- function(models, ylabel) {
   prophet_frames_by_state <-
     Map(function(state, model, fcast) {
-          prophet:::df_for_plotting(model, fcast) %>% mutate(state = state)
-        },
-        models$state, models$model, models$forecast) %>%
+      prophet:::df_for_plotting(model, fcast) %>% mutate(state = state)
+    },
+    models$state, models$model, models$forecast) %>%
     bind_rows()
   prophet_frames_by_state %>%
     ggplot(aes(x = as.Date(ds), y = y)) +
@@ -80,14 +77,49 @@ model_var_by_state <- function(state_day_frame,
   models
 }
 
-#' Return only those states in dat that have at least min_reviews in year yyyy.
-apply_reviews_in_year_criteria <- function(dat, min_reviews, yyyy = 2017) {
-  dat %>%
-    group_by(state, year = lubridate::year(date)) %>%
-    summarize(reviews_in_year = n()) %>%
-    filter(year == yyyy, reviews_in_year >= min_reviews) %>%
-    select(state)
+get_businesses_and_reviews_fpath <- function() {
+  glue("{DATA_DIR}/businesses_and_reviews.feather")
 }
+
+#' Reads dataframe from the path get_businesses_and_reviews_fpath() if
+#' that file exists. If it does not exist, reads and joins business and review
+#' data sets, and writes out a file to get_businesses_and_reviews_fpath().
+#' @return A tibble with one row per review, with business information attached.
+prepare_businesses_and_reviews <- function() {
+  path <- get_businesses_and_reviews_fpath()
+  if (file.exists(path)) {
+    read_feather(path)
+  } else {
+    businesses <- read_dat("yelp_business.csv")
+    reviews <- read_dat("yelp_review.csv") %>% select(-text)
+    businesses_and_reviews <- businesses %>%
+      select(business_id, name, review_count, state, city) %>%
+      inner_join(reviews, by = "business_id")
+    write_feather(businesses_and_reviews, path)
+    businesses_and_reviews
+  }
+}
+
+.count_n_above <- function(tallied_dat, n_min) {
+  tallied_dat %>% filter(n >= n_min) %>% nrow()
+}
+
+## State names for states that make it through the MIN_REVIEWS_IN_YEAR filter.
+## Where state codes weren't clear, codes were manually converted by
+## looking at cities in the dataset.
+state_codes_map <- c("AZ" = "Arizona",
+                     "BW" = "Baden-Wurttemberg",
+                     "EDH" = "Edinburg area (Scotland)",
+                     "IL" = "Illinois",
+                     "NC" = "North Carolina",
+                     "NV" = "Nevada",
+                     "OH" = "Ohio",
+                     "ON" = "Ontario",
+                     "PA" = "Pennsylvania",
+                     "QC" = "Quebec",
+                     "SC" = "South Carolina",
+                     "WI" = "Wisconsin") %>%
+  tibble(state_code = names(.), state = .)
 
 #' Common ggplot elements of simple raw timeseries plots.
 facet_pt_state_date <- list(geom_point(aes(x = date)),
@@ -97,41 +129,53 @@ facet_pt_state_date <- list(geom_point(aes(x = date)),
 #' Common states filter
 additional_states_filter <- . %>% filter(TRUE) ##filter(state %in% c("AZ", "PA"))
 
-
 DATA_DIR <- "../data"
-MIN_REVIEWS_IN_2017 <- 300
+MIN_REVIEWS_IN_YEAR <- 300
+YEAR <- 2017
 
-businesses <- read_dat("yelp_business.csv")
-businesses_to_use <- businesses %>% select(business_id) %>% unique() ## top_n
+businesses_and_reviews <- prepare_businesses_and_reviews() %>%
+  rename(state_code = state)
 
-## checkins <- read_dat("yelp_checkin.csv") %>% filter_biz(businesses_to_use)
-## users <- read_dat("yelp_user.csv")
+.min_date <- min(businesses_and_reviews$date)
+.max_date <- max(businesses_and_reviews$date)
+.number_of_states <- length(unique(businesses_and_reviews$state_code))
+.all_time_reviews_by_state <- businesses_and_reviews %>%
+  group_by(state_code) %>%
+  tally()
 
-reviews <- read_dat("yelp_review.csv") %>% filter_biz(businesses_to_use)
+states_year_review_counts <- businesses_and_reviews %>%
+  group_by(state_code, year = lubridate::year(date)) %>%
+  summarize(reviews_in_year = n())
 
-reviews %<>% select(-text)
+states_to_use_counts <- states_year_review_counts %>%
+  filter(year == YEAR, reviews_in_year >= MIN_REVIEWS_IN_YEAR) %>%
+  left_join(state_codes_map, by = "state_code") %>%
+  ## We wrote state names down (in state_codes_map) once we knew the output
+  ## of the above filter.
+  ## If we failed to write a name down for any state_code, throw an error:
+  assertr::verify(!is.na(state)) %>%
+  ungroup()
 
-businesses_and_reviews <- businesses %>%
-  ## filter(review_count >= MIN_REVIEW_COUNT) %>%
-  select(business_id, name, review_count, state, city) %>%
-  inner_join(reviews, by = "business_id")
-
-rm(reviews);rm(businesses);gc()
-
-states_to_use <- businesses_and_reviews %>%
-  apply_reviews_in_year_criteria(min_reviews = MIN_REVIEWS_IN_2017, yyyy = 2017)
+.states_to_use_counts <- states_to_use_counts %>%
+  select(state, reviews_in_year) %>%
+  arrange(desc(reviews_in_year)) %>%
+  mutate(reviews_in_year = scales::comma(reviews_in_year)) %>%
+  set_colnames(c("State", glue("Reviews in {YEAR}")))
 
 state_review_values_by_date <- businesses_and_reviews %>%
-  inner_join(states_to_use, by = "state") %>%
+  inner_join(states_to_use_counts, by = "state_code") %>%
+  ## Now that we've filtered state codes down to ones that definitely
+  ## exist and we have names for, we stop using state_code and start using
+  ## the more descriptive state column.
   group_by(state, date) %>%
   summarize(reviews = n(), mean_stars = mean(stars)) %>%
   arrange(state, date)
 
 ## Vanilla plots of daily values.
-daily_avg_stars_plot <- state_review_values_by_date %>%
+.daily_avg_stars_plot <- state_review_values_by_date %>%
   ggplot(aes(y = mean_stars)) +
   facet_pt_state_date
-daily_review_counts_plot <- state_review_values_by_date %>%
+.daily_review_counts_plot <- state_review_values_by_date %>%
   ggplot(aes(y = reviews)) +
   facet_pt_state_date
 

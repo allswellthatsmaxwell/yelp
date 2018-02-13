@@ -1,0 +1,72 @@
+---
+title: "Yelp Review Frequency"
+author: "Maxwell Peterson"
+output: html_document
+bibliography: yelp.bib
+---
+
+# When do people post Yelp reviews?
+
+```{r include = FALSE, echo = FALSE}
+  NMIN_TO_COUNT <- 100
+  fmt_text_date <- function(dt) format(dt, "%B %d, %Y")
+  knitr::opts_chunk$set(fig.width = 14, fig.height = 8) 
+```
+
+The number of reviews posted to Yelp per day is a proxy to
+a number of interesting questions. Is Yelp usage still growing? What days of
+the week do people visit restaurants? Do people go out on holidays (or: are
+restaurants open on holidays?)?
+
+## Input Data
+Input data is a subset of Yelp data. Data was provided for 11 metropolitan areas.
+Dates range from `r fmt_text_date(.min_date)` to
+`r fmt_text_date(.max_date)`. We examine trends at the state and province level
+(from here-on just "states"). Input data contains reviews from
+`r .number_of_states` states, but not all states saw enough Yelp activity to
+say interesting things about; just
+`r .count_n_above(.all_time_reviews_by_state, NMIN_TO_COUNT)`
+had more than `r NMIN_TO_COUNT` reviews all-time. If this seems low, note that
+the publicly-available data is only a small subset of Yelp's data, and than
+some very small "states" are likely just incorrectly marked (e.g. state "01")
+
+Part of our objective will be to forecast future review counts. So we'll
+keep only those states that have a decent amount of activity in the recent past.
+Specifically, we only analyze states with `r MIN_REVIEWS_IN_YEAR` or more
+reviews in the year `r YEAR`.  These are:
+```{r include = TRUE, echo = FALSE, results = "asis"}
+xtable::xtable(.states_to_use_counts, align = "llr") %>%
+  print(type = "html", include.rownames = FALSE)
+```
+
+Going forward, we only use these states.
+	
+### Reviews Per Day
+Reviews per day per state all-time activity.
+Note that each y axis is different.
+```{r include = TRUE, echo = FALSE}
+  .daily_review_counts_plot
+```
+
+Observe:
+	
+* There is an upward trend in most states.
+  
+    This makes sense -- Yelp was founded
+    in 2004. More people learned of the site over time and so reviews grew over time.
+    What's interesting is the states that *didn't* trend upward over the past 12 years:
+    Baden-Wurttemburg in Germany, and the Edinburg region in Scotland. A few
+    possible explanations:
+
+    + Competition
+    
+        Yelp did have a serious European competitor: Qype. Qype may have even been more
+        popular than Yelp: Qype announced traffic numbers in May 2012 that suggest it
+        had 5 times Yelp's traffic [@qype_traffic]. Yelp bought Qype 5 months later
+        [@qype_merger], and the movement up in Baden-Wurttemburg happens around 2012! But
+        for whatever reason, that doesn't continue.
+
+* There are infrequent, but large spikes downward in reviews posted
+
+    This is most obvious in Arizona, but can be observed in many states, including
+    the two Canadian provinces. These are probably the big winter holidays.
