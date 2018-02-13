@@ -65,12 +65,15 @@ get_holidays <- function(years) {
 #' @param horizon scalar int; number of out-of-sample days in the future to
 #' be forecasted
 model_var_by_state <- function(state_day_frame,
-                               holiday_frame,
+                               holiday_frame = NULL,
                                horizon = 365 * 2) {
-  models <- state_day_frame %>%
+  input_groups_frame <- state_day_frame %>%
     select(state, ds, y) %>%
-    group_by(state) %>%
-    do(model = prophet(df = ., holidays = holiday_frame))
+    group_by(state)
+  prophet_call <- purrr::partial(prophet, df = input_groups_frame)
+  if (!missing(holiday_frame))
+    prophet_call <- purrr::partial(prophet_call, holidays = holiday_frame)
+  models <- input_groups_frame %>% do(model = prophet_call())
   models$future <- lapply(models$model,
                           function(m) make_future_dataframe(m, horizon))
   models$forecast <- Map(predict, models$model, models$future)
@@ -132,7 +135,8 @@ facet_pt_state_date <- list(geom_point(aes(x = date)),
                             xlab("Date"))
 
 #' Common states filter
-additional_states_filter <- . %>% filter(TRUE) ##filter(state %in% c("AZ", "PA"))
+additional_states_filter <- . %>%
+  filter(state %in% c("Arizona", "Pennsylvania")) ## filter(TRUE)
 
 DATA_DIR <- "../data"
 MIN_REVIEWS_IN_YEAR <- 300
@@ -197,7 +201,7 @@ hols <- get_holidays(unique(year(state_review_values_by_date$date)))
 reviews_models <- state_review_values_by_date %>%
   additional_states_filter() %>%
   rename(ds = date, y = reviews) %>%
-  model_var_by_state(hols)
+  model_var_by_state()
 
 ## Great!
 reviews_facets <- plot_prophet_facets(reviews_models,

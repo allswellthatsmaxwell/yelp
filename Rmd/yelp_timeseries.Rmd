@@ -67,18 +67,24 @@ Observe:
 
     + Competition
     
-        Yelp did have a serious European competitor: Qype. Qype may have even been more
-        popular than Yelp: Qype announced traffic numbers in May 2012 that suggest it
-        had 5 times Yelp's traffic [@qype_traffic]. Yelp bought Qype 5 months later
-        [@qype_merger], and the movement up in Baden-Wurttemburg happens around 2012! But
-        for whatever reason, that doesn't continue.
+        Yelp did have a serious European competitor: Qype. In May 2012, Qype 
+        may have had as much as 5 times Yelp's traffic [@qype_traffic].
+	Yelp bought Qype 5 months later [@qype_merger], and the beginning of an
+	upward trend in Baden-Wurttemburg happens around the same time!
+	But it doesn't continue.
 
 * Large, infrequent spikes downward in reviews posted
 
     This is most obvious in Arizona, but is the case in many states, including
     the two Canadian provinces. These are probably the big winter holidays.
 
+* Infrequent high outliers
 
+    At least Illinois, Wisconsin, and Quebec have a few days with a very high
+    number of reviews.
 
-
+* South Carolina
+    South Carolina's utilization looks odd, but there are very few reviews
+    in the state.
+    
 *****
