@@ -49,12 +49,43 @@ plot_prophet_facets <- function(models, ylabel) {
 }
 
 #' Cast numeric date of the form yyyymmdd to a proper date.
-yyyymmdd_to_date <- . %>% as.character() %>% as.Date(format = "%Y%m%d")
+yyyymmdd_to_date <- function(dates) {
+  datenames <- names(dates)
+  dates %<>% as.character() %>% as.Date(format = "%Y%m%d")
+  names(dates) <- datenames
+  dates
+}
+
+#' Canada day is on July 1 every year. Return a vector with those dates,
+#' with every element named CanadaDay.
+get_canada_day <- function(years) {
+  canada_days <- paste0(years, "0701")
+  names(canada_days) <- rep("CanadaDay", length(canada_days))
+  canada_days
+}
 
 #' Get holidays.
+#' Pulls back holidays quite aggressively; takes each day
+#' tis::holidays considers a holiday, plus the day before
+#' and the day after (named the same as the source holiday).
 get_holidays <- function(years) {
-  hol_vec <- holidays(businessOnly = FALSE, board = TRUE, years = years)
-  tibble(holiday = names(hol_vec), ds = yyyymmdd_to_date(hol_vec))
+  hol_vec <- holidays(businessOnly = FALSE,
+                      board = TRUE,
+                      goodFriday = TRUE,
+                      inaug = TRUE,
+                      years = years) %>%
+    c(get_canada_day(years)) %>%
+    yyyymmdd_to_date()
+  one_day_before <- hol_vec - 1
+  one_day_after <- hol_vec + 1
+  names(one_day_before) <- names(hol_vec)
+  names(one_day_after)  <- names(hol_vec)
+  tibble(holiday = c(names(one_day_before),
+                     names(hol_vec),
+                     names(one_day_after)),
+         ds = c(one_day_before,
+                hol_vec,
+                one_day_after))
 }
 
 #' Construct daily-level fits, and forecast horizon days,
@@ -108,6 +139,19 @@ prepare_businesses_and_reviews <- function() {
 
 .count_n_above <- function(tallied_dat, n_min) {
   tallied_dat %>% filter(n >= n_min) %>% nrow()
+}
+
+#' Orders input nicely and gives it proper names.
+.prepare_outlier_holidays_for_print <- function(outlier_holiday_dat) {
+  outlier_holiday_dat %>%
+    group_by(holiday) %>%
+    mutate(total_appearances = sum(appearances_of_day_in_state)) %>%
+    arrange(desc(total_appearances),
+            desc(appearances_of_day_in_state),
+            state) %>%
+    select(-total_appearances) %>%
+    rename("State" = state, "Holiday" = holiday,
+           "Outliers (all-time)" = appearances_of_day_in_state)
 }
 
 #' sends input date yyyy-mm-dd to 1900-mm-dd
@@ -171,7 +215,7 @@ make_european_outliers_plot <- function(outlier_dat) {
     theme_bw() +
     theme(axis.title.x = element_blank()) +
     scale_x_date(date_breaks = "3 months",
-                 labels = function(d) format(d, "%b %y"))
+                 labels = function(d) format(d, "%b '%y"))
 }
 
 ## State names for states that make it through the MIN_REVIEWS_IN_YEAR filter.
@@ -250,6 +294,15 @@ state_review_values_by_date <- businesses_and_reviews %>%
   summarize(reviews = n(), mean_stars = mean(stars)) %>%
   arrange(state, date)
 
+## Holiday drops are pretty drastic in a few states; adding in holidays
+## induces prophet to drop its forecast more aggresively on holidays
+## corresponding to those historical dips.
+hols <- state_review_values_by_date$date %>%
+  lubridate::year() %>%
+  unique() %>%
+  extend_years_to_current() %>%
+  get_holidays()
+
 ## Vanilla plots of daily values.
 .daily_avg_stars_plot <- state_review_values_by_date %>%
   ggplot(aes(y = mean_stars)) +
@@ -264,52 +317,39 @@ state_review_values_by_date <- businesses_and_reviews %>%
 ## Outlier investigation. ######################################################
 SD_FACTOR <- 4
 
+## Same number of rows as the input frame, but with a bunch of
+## columns containing the year-detrended series, standard deviation,
+## outlier-interval, and with days marked with whether they're outliers.
 outlier_days <- state_review_values_by_date %>%
   mutate(y = reviews) %>%
   group_by(state) %>%
-  get_outlier_dates(sd_factor = SD_FACTOR)
-
-state_review_values_w_outliers <- outlier_days %>%
+  get_outlier_dates(sd_factor = SD_FACTOR) %>%
   select(state, date,
          y_wo_year_trend, y_wo_year_trend_avg, y_wo_year_trend_sd,
          bot, top,
-         outlier) %>%
+         outlier)
+
+state_review_values_w_outliers <- outlier_days %>%
   inner_join(state_review_values_by_date, by = c("state", "date"))
+
+## Holidays that coincided with outliers.
+outlier_holidays <- state_review_values_w_outliers %>%
+  filter(outlier,
+         !(state %in% EUROPEAN_STATES)) %>%
+  inner_join(hols, by = c("date" = "ds")) %>%
+  group_by(state, holiday) %>%
+  summarize(appearances_of_day_in_state = n())
+
 
 .daily_review_counts_plot_w_outliers <- state_review_values_w_outliers %>%
   make_outlier_plot()
-
 .european_outliers_plot <- state_review_values_w_outliers %>%
   make_european_outliers_plot()
-
-outlier_dates <- state_review_values_w_outliers %>%
-  filter(outlier) %>%
-  select(state, date) %>%
-  mutate(date_fixed_year = send_date_to_fixed_year(date)) %>%
-  group_by(state, date_fixed_year) %>%
-  summarize(appearances = n()) %>%
-  arrange(desc(appearances))
-
-  group_by(appearances) %>%
-  mutate(n_states = n_distinct(state)) %>%
-  arrange(desc(appearances), desc(n_states))
-
-.days_outliers_occur_plot <- outlier_dates %>%
-  ggplot(aes(x = date_fixed_year, y = state)) +
-  geom_point()
-
+.outlier_holidays <- outlier_holidays %>% .prepare_outlier_holidays_for_print()
 
 
 ## Modeling and forecasting. ###################################################
 ##
-## Holiday drops are pretty drastic in a few states; adding in holidays
-## induces prophet to drop its forecast more aggresively on holidays
-## corresponding to those historical dips.
-hols <- state_review_values_by_date$date %>%
-  lubridate::year() %>%
-  unique() %>%
-  extend_years_to_current() %>%
-  get_holidays()
 
 reviews_models <- state_review_values_by_date %>%
   additional_states_filter() %>%

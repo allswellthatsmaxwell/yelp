@@ -39,7 +39,8 @@ keep only those states that have a decent amount of activity in the recent past.
 Specifically, we only analyze states with `r MIN_REVIEWS_IN_YEAR` or more
 reviews in the year `r YEAR`.  These are:
 ```{r include = TRUE, echo = FALSE, results = "asis"}
-xtable::xtable(.states_to_use_counts, align = "llr") %>%
+.states_to_use_counts %>%
+  xtable::xtable(align = "llr") %>%
   print(type = "latex", include.rownames = FALSE, comment = FALSE)
 ```
 
@@ -87,6 +88,8 @@ Observe:
     South Carolina's utilization looks odd, but there are very few reviews
     in the state.
 
+\pagebreak
+    
 #### Outliers
 There are outliers in the dataset. We'd like to know:
 
@@ -110,9 +113,13 @@ outliers are the red triangles:
     guides(color = FALSE, shape = FALSE)
 ```
 
+##### Did a spike in usage occur in two European states at the same time?
+	
 The far-away view suggests that the Baden-Wurttemburg outlier spike
 and the Edinburg spike may fall on the same days. But closer examination
-is less exciting:
+is less exciting; below, we mark each outlier day with a black dot, and leave
+non-outlier days blank. The spikes we are interested occur between 2008 and
+2010, so only those years are included.
 
 ```{r include = TRUE, echo = FALSE, dpi = 70, fig.height = 1.2, fig.width = 5.7}
 .european_outliers_plot + theme(axis.title.y = element_blank(),
@@ -122,7 +129,28 @@ is less exciting:
 ```
 
 Though the outlier  days sometimes overlap for the two regions,
-the patterns are less similar than the red-triangled outlier plot suggested.
+the patterns are less similar than the red-triangled outlier plot suggested. So
+there's not much here. Let's move on.  
+
+\pagebreak
+	
+##### Are holidays causing the infrequent downward jumps in some states?
+
+Given a holiday H, we consider H, the day before H, and the day after to be
+the same holiday, and name them all H.
+Then the counts of holidays that are also outlier days are as follows:
+```{r include = TRUE, echo = FALSE, results = "asis"}
+.outlier_holidays %>%
+    xtable::xtable(align = "lrcl") %>%
+    print(type = "latex", include.rownames = FALSE, comment = FALSE)
+```
+
+So Thanksgiving and Christmas do often correspond to the low days. This
+is reasonable; people probably go to restaurants less on these big family-oriented
+holidays. This also suggests we should include these holidays in any forecasting we do.  
+
+There are some good strange cases here, too; Quebec's apparent celebration of
+Independence Day is especially charming.
 
 
 *****
