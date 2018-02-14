@@ -9,6 +9,7 @@ library(lubridate)
 library(tis)
 library(feather)
 library(assertr)
+library(rowr)
 
 #' Read csv_basename from elsewhere-defined DATA_DIR
 read_dat <- function(csv_basename) {
@@ -20,11 +21,11 @@ read_dat <- function(csv_basename) {
 copy_prophet_plot <- list(geom_ribbon(aes(ymin = yhat_lower,
                                           ymax = yhat_upper),
                                       alpha = 0.2,
-                                      fill = "#0072B2",
+                                      fill = RIBBON_COLOR,
                                       na.rm = TRUE),
                           geom_point(na.rm = TRUE),
                           geom_line(aes(y = yhat),
-                                    color = "#0072B2",
+                                    color = RIBBON_COLOR,
                                     na.rm = TRUE))
 
 #' Make the usual plot.prophet plot, but repeat in facets for every state.
@@ -42,7 +43,7 @@ plot_prophet_facets <- function(models, ylabel) {
     ylab(ylabel) +
     xlab("date") +
     scale_x_date(date_breaks = "6 months",
-                 labels = function(b) format(b, "%b %Y")) +
+                 labels = function(d) format(d, "%b %Y")) +
     theme(axis.text.x = element_text(angle = 90)) +
     copy_prophet_plot
 }
@@ -62,18 +63,20 @@ get_holidays <- function(years) {
 #' state, ds (a date), and y (response variable; numeric)
 #' @param holiday_frame a dataframe with the columns "holiday" and "ds",
 #' respectively the name of the holiday and the dates it fell on.
+#' If not passed, models without holidays.
 #' @param horizon scalar int; number of out-of-sample days in the future to
 #' be forecasted
 model_var_by_state <- function(state_day_frame,
                                holiday_frame = NULL,
-                               horizon = 365 * 2) {
+                               horizon = DAYS_IN_YEAR) {
   input_groups_frame <- state_day_frame %>%
     select(state, ds, y) %>%
     group_by(state)
-  prophet_call <- purrr::partial(prophet, df = input_groups_frame)
+  args <- list(df = input_groups_frame)
   if (!missing(holiday_frame))
-    prophet_call <- purrr::partial(prophet_call, holidays = holiday_frame)
-  models <- input_groups_frame %>% do(model = prophet_call())
+    args <- append(args, list(holidays = holiday_frame))
+  models <- do(input_groups_frame,
+               model = do.call(prophet, args))
   models$future <- lapply(models$model,
                           function(m) make_future_dataframe(m, horizon))
   models$forecast <- Map(predict, models$model, models$future)
@@ -105,6 +108,70 @@ prepare_businesses_and_reviews <- function() {
 
 .count_n_above <- function(tallied_dat, n_min) {
   tallied_dat %>% filter(n >= n_min) %>% nrow()
+}
+
+#' sends input date yyyy-mm-dd to 1900-mm-dd
+send_date_to_fixed_year <- function(date) {
+  as.Date(glue("1900-{format(date, '%m-%d')}"))
+}
+
+#' returns the input vector of years (yyyy), and additionally all the years
+#' between the final year in the input and the current year
+extend_years_to_current <- function(year_vec)
+  c((min(year_vec) + 1):lubridate::year(Sys.Date()))
+
+#' @param dat either a dataframe representing a single group, or
+#' a grouped dataframe, that has the column y
+#' @param winsize size (days) of the rolling window to use to calculate outliers
+#' @param sd_factor how many standard deviations away from the windowed
+#' mean must a point be to qualify as an outlier?
+get_outlier_dates <- function(dat, sd_factor) {
+  dat %>%
+    mutate(yearly_avg = rowr::rollApply(y, fun = mean, window = DAYS_IN_YEAR,
+                                        align = "right")) %>%
+    mutate(y_wo_year_trend = y - yearly_avg) %>%
+    mutate(y_wo_year_trend_avg = mean(y_wo_year_trend),
+           y_wo_year_trend_sd  = sd  (y_wo_year_trend)) %>%
+    mutate(top = y_wo_year_trend_avg + sd_factor * y_wo_year_trend_sd,
+           bot = y_wo_year_trend_avg - sd_factor * y_wo_year_trend_sd,
+           outlier = !between(y_wo_year_trend, bot, top))
+}
+
+#' Plots year-detrended reviews per day, by state, identifying
+#' outliers and standard-deviation regions by color
+make_outlier_plot <- function(outlier_dat) {
+  outlier_dat %>%
+    filter(!is.na(outlier)) %>%
+    ggplot(aes(x = date, y = y_wo_year_trend)) +
+    geom_point(aes(color = outlier, shape = outlier)) +
+    geom_line(aes(y = y_wo_year_trend_avg), color = "white") +
+    facet_wrap(~state, scales = "free_y") +
+    theme_bw() +
+    scale_color_manual(values = c("black", "red")) +
+    x_date_scale +
+    ylab("# reviews on day") +
+    geom_ribbon(aes(x = date, ymin = bot, ymax = top),
+                alpha = 0.2,
+                fill = RIBBON_COLOR,
+                 na.rm = TRUE)
+}
+
+#' Makes a plot of the Germany and Scotland outliers for the
+#' years 2008-2010. This plot should be displayed very small.
+make_european_outliers_plot <- function(outlier_dat) {
+  outlier_dat %>%
+    filter(outlier,
+           state %in% EUROPEAN_STATES,
+           between(year(date), 2008, 2010)) %>%
+    group_by(state, date) %>%
+    tally() %>%
+    arrange(desc(n)) %>%
+    ggplot(aes(x = date, y = state)) +
+    geom_point() +
+    theme_bw() +
+    theme(axis.title.x = element_blank()) +
+    scale_x_date(date_breaks = "3 months",
+                 labels = function(d) format(d, "%b %y"))
 }
 
 ## State names for states that make it through the MIN_REVIEWS_IN_YEAR filter.
@@ -141,6 +208,9 @@ additional_states_filter <- . %>%
 DATA_DIR <- "../data"
 MIN_REVIEWS_IN_YEAR <- 300
 YEAR <- 2017
+DAYS_IN_YEAR <- 365
+RIBBON_COLOR <- "#0072B2"
+EUROPEAN_STATES <- c("Baden-Wurttemberg", "Edinburg area (Scotland)")
 
 businesses_and_reviews <- prepare_businesses_and_reviews() %>%
   rename(state_code = state)
@@ -191,21 +261,73 @@ state_review_values_by_date <- businesses_and_reviews %>%
   x_date_scale +
   ylab("# reviews on day")
 
-## Modeling.
+## Outlier investigation. ######################################################
+SD_FACTOR <- 4
+
+outlier_days <- state_review_values_by_date %>%
+  mutate(y = reviews) %>%
+  group_by(state) %>%
+  get_outlier_dates(sd_factor = SD_FACTOR)
+
+state_review_values_w_outliers <- outlier_days %>%
+  select(state, date,
+         y_wo_year_trend, y_wo_year_trend_avg, y_wo_year_trend_sd,
+         bot, top,
+         outlier) %>%
+  inner_join(state_review_values_by_date, by = c("state", "date"))
+
+.daily_review_counts_plot_w_outliers <- state_review_values_w_outliers %>%
+  make_outlier_plot()
+
+.european_outliers_plot <- state_review_values_w_outliers %>%
+  make_european_outliers_plot()
+
+outlier_dates <- state_review_values_w_outliers %>%
+  filter(outlier) %>%
+  select(state, date) %>%
+  mutate(date_fixed_year = send_date_to_fixed_year(date)) %>%
+  group_by(state, date_fixed_year) %>%
+  summarize(appearances = n()) %>%
+  arrange(desc(appearances))
+
+  group_by(appearances) %>%
+  mutate(n_states = n_distinct(state)) %>%
+  arrange(desc(appearances), desc(n_states))
+
+.days_outliers_occur_plot <- outlier_dates %>%
+  ggplot(aes(x = date_fixed_year, y = state)) +
+  geom_point()
+
+
+
+## Modeling and forecasting. ###################################################
 ##
 ## Holiday drops are pretty drastic in a few states; adding in holidays
 ## induces prophet to drop its forecast more aggresively on holidays
 ## corresponding to those historical dips.
-hols <- get_holidays(unique(year(state_review_values_by_date$date)))
+hols <- state_review_values_by_date$date %>%
+  lubridate::year() %>%
+  unique() %>%
+  extend_years_to_current() %>%
+  get_holidays()
 
 reviews_models <- state_review_values_by_date %>%
   additional_states_filter() %>%
   rename(ds = date, y = reviews) %>%
   model_var_by_state()
 
+reviews_models_hols <- state_review_values_by_date %>%
+  additional_states_filter() %>%
+  rename(ds = date, y = reviews) %>%
+  model_var_by_state(holiday_frame = hols)
+
 ## Great!
-reviews_facets <- plot_prophet_facets(reviews_models,
-                                      ylab = "reviews posted on day")
+.reviews_facets <- plot_prophet_facets(reviews_models,
+                                       ylab = "reviews posted on day")
+
+.reviews_facets_hols <- plot_prophet_facets(reviews_models_hols,
+                                            ylab = "reviews posted on day")
+
 
 stars_models <- state_review_values_by_date %>%
   additional_states_filter() %>%

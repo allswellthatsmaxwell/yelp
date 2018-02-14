@@ -8,13 +8,13 @@ bibliography: yelp.bib
 # When do people post Yelp reviews?
 
 ```{r include = FALSE, echo = FALSE}
-  NMIN_TO_COUNT <- 100
-  fmt_text_date <- function(dt) format(dt, "%B %d, %Y")
-  knitr::opts_chunk$set(fig.width = 22, fig.height = 12)
-  pdf_gg_facet_theme <- list(theme(strip.text.x = element_text(size = 22),
-                                   axis.text = element_text(size = 22),
-                                   axis.text.x = element_text(angle = 90),
-                                   axis.title = element_text(size = 28)))
+NMIN_TO_COUNT <- 100
+fmt_text_date <- function(dt) format(dt, "%B %d, %Y")
+knitr::opts_chunk$set(fig.width = 22, fig.height = 12)
+pdf_gg_facet_theme <- list(theme(strip.text.x = element_text(size = 22),
+                                 axis.text = element_text(size = 22),
+                                 axis.text.x = element_text(angle = 90),
+                                 axis.title = element_text(size = 28)))
 ```
 
 The number of reviews posted to Yelp per day is a proxy to
@@ -52,7 +52,7 @@ Reviews per day per state all-time activity.
 Note that each y axis is different.
 
 ```{r include = TRUE, echo = FALSE, dpi = 70}
-  .daily_review_counts_plot + pdf_gg_facet_theme
+.daily_review_counts_plot + pdf_gg_facet_theme
 ```
 
 Observe:
@@ -86,5 +86,43 @@ Observe:
 * South Carolina
     South Carolina's utilization looks odd, but there are very few reviews
     in the state.
-    
+
+#### Outliers
+There are outliers in the dataset. We'd like to know:
+
+* Did the single dramatic spikes upward in the two European countries occur
+  on the same day?
+
+* Do the yearly dips in AZ, PA OH, WI, and more fall on Christmas, or
+  Thanksgiving?
+
+To answer these questions, any rough definition of outliers will do.
+We just need a scheme that picks up the outliers obvious to the eye, 
+and that doesn't pick up too many days.
+We landed on taking those days that were 4 or more standard deviations from
+the yearly-detrended mean. In other words: we removed the upward trend from
+each state, then took the points that were unusually far away from the average.
+Then graphically, the average is the horizontal white line and the
+outliers are the red triangles:
+
+```{r include = TRUE, echo = FALSE, dpi = 70}
+.daily_review_counts_plot_w_outliers + pdf_gg_facet_theme +
+    guides(color = FALSE, shape = FALSE)
+```
+
+The far-away view suggests that the Baden-Wurttemburg outlier spike
+and the Edinburg spike may fall on the same days. But closer examination
+is less exciting:
+
+```{r include = TRUE, echo = FALSE, dpi = 70, fig.height = 1.2, fig.width = 5.7}
+.european_outliers_plot + theme(axis.title.y = element_blank(),
+                                axis.text.y = element_text(size = 12),
+                                axis.text.x = element_text(size = 12,
+                                                           angle = 90))
+```
+
+Though the outlier  days sometimes overlap for the two regions,
+the patterns are less similar than the red-triangled outlier plot suggested.
+
+
 *****
