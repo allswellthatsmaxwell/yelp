@@ -10,11 +10,13 @@ bibliography: yelp.bib
 ```{r include = FALSE, echo = FALSE}
 NMIN_TO_COUNT <- 100
 fmt_text_date <- function(dt) format(dt, "%B %d, %Y")
-knitr::opts_chunk$set(fig.width = 22, fig.height = 12)
-pdf_gg_facet_theme <- list(theme(strip.text.x = element_text(size = 22),
-                                 axis.text = element_text(size = 22),
+knitr::opts_chunk$set(fig.width = 30, fig.height = 18)
+pdf_gg_facet_theme <- list(theme(strip.text.x = element_text(size = 30),
+                                 axis.text = element_text(size = 26),
                                  axis.text.x = element_text(angle = 90),
-                                 axis.title = element_text(size = 28)))
+                                 axis.title = element_text(size = 34),
+                                 legend.text = element_text(size = 34),
+                                 title = element_text(size = 42)))
 ```
 
 The number of reviews posted to Yelp per day is a proxy to
@@ -156,6 +158,52 @@ Independence Day is especially charming.
 
 #### Forecasting future reviews-per-day
 
-Auto-fitting a timeseries model to each state and forecasting out
-     
+Auto-fitting a timeseries model to each state using default settings
+(and denying holidays any special treatment) gives the following fits 
+to the data. We also include a forecast for one year past
+the final data point:
+    
+```{r include = TRUE, echo = FALSE, dpi = 70}
+.reviews_facets + pdf_gg_facet_theme
+```  
+
+The upward trends are captured nicely, and the within-year variation
+also looks good. This fit can be used to predict, but also provides a clearer
+picture of the different trends over time. The fitted line allows us
+to observe:
+
+* Almost all states have their highest yearly yelp review activity 
+  in the middle of the year.
+
+* Arizona exhibits a strange step-like behavior in its upward trend.
+
+* The year-of-year acceleration in reviews has leveled off in the past
+  few years: Nevada, Pennsylvania, Ohio, and especially Wisconsin and Ontario
+  appear to perhaps be going level (though the increasing spread in the data
+  in recent years in some states [esp. Ontario] complicates this conclusion).
+
+\pagebreak
+
+###### Marking holidays
+We discovered in a previous section that a lot of outliers coincide with
+holidays. Treating holidays specially may improve the forecast. Fitting the
+same model as above, but including the holidays from the previous section,
+results in the following in-sample fit (zoomed-in to 2017 for better resolution).
+Holidays are marked with points (recall that we consider the 3-day area 
+around a holiday to all be holidays).
+
+```{r include = TRUE, echo = FALSE, dpi = 70}
+.holiday_vs_non_forecast_plot + pdf_gg_facet_theme
+```  
+
+So marking holidays has induced the fit to dive and arc aggressively for
+holidays on which there were extreme values; but at the same time, no
+dives or arcs are made for days marked holidays that had values in
+normal ranges. So our strategy of marking a slew of holidays, even ones that
+do not commonly coincide with extreme values, did not hurt the model's ability
+to discriminate between (in-sample) true extreme holidays and 
+technically-holidays-but-pretty-normal days.
+
+###### Choosing a model
+
 *****

@@ -18,17 +18,6 @@ read_dat <- function(csv_basename) {
                   progress = FALSE)
 }
 
-## Elements stolen from prophet:::plot.prophet
-copy_prophet_plot <- list(geom_ribbon(aes(ymin = yhat_lower,
-                                          ymax = yhat_upper),
-                                      alpha = 0.2,
-                                      fill = RIBBON_COLOR,
-                                      na.rm = TRUE),
-                          geom_point(na.rm = TRUE),
-                          geom_line(aes(y = yhat),
-                                    color = RIBBON_COLOR,
-                                    na.rm = TRUE))
-
 #' Make the usual plot.prophet plot, but repeat in facets for every state.
 plot_prophet_facets <- function(models, ylabel) {
   prophet_frames_by_state <-
@@ -43,10 +32,20 @@ plot_prophet_facets <- function(models, ylabel) {
     theme_bw() +
     ylab(ylabel) +
     xlab("date") +
-    scale_x_date(date_breaks = "6 months",
-                 labels = function(d) format(d, "%b %Y")) +
+    scale_x_date(date_breaks = "1 year",
+                 labels = function(d) format(d, "%b %Y"),
+                 minor_breaks = NULL) +
     theme(axis.text.x = element_text(angle = 90)) +
-    copy_prophet_plot
+    ## Elements stolen from prophet::plot.prophet
+    geom_ribbon(aes(ymin = yhat_lower, ymax = yhat_upper),
+                alpha = 0.2, fill = RIBBON_COLOR, na.rm = TRUE) +
+    geom_point(na.rm = TRUE, alpha = 0.5, color = "gray") +
+    geom_line(aes(y = yhat), color = RIBBON_COLOR, na.rm = TRUE)
+    ##geom_point(data = prophet_frames_by_state %>% filter(between(month(ds), 6, 8)),
+    ##           aes(y = yhat),
+    ##           color = "red",
+    ##           size = 0.1,
+    ##           alpha = 0.5)
 }
 
 #' Cast numeric date of the form yyyymmdd to a proper date.
@@ -203,6 +202,29 @@ make_outlier_plot <- function(outlier_dat) {
                  na.rm = TRUE)
 }
 
+#' returns a per-state plot with one line per level of stacked_forecast_frame,
+#' and one point per date in holiday_frame, for the subset of rows with
+#' year(stacked_input_frame$ds) equal to YEAR.
+make_model_comparison_plot <- function(stacked_forecast_frame, holiday_frame,
+                                       year = YEAR) {
+  fcast_year <- stacked_forecast_frame %>% filter(year(ds) == YEAR) %>%
+    mutate(ds = as.Date(ds))
+  holiday_data <- take_holiday_days(fcast_year, holiday_frame)
+  fcast_year %>%
+    ggplot(aes(x = ds, y = yhat)) +
+    geom_line(aes(color = group), alpha = 0.8) +
+    geom_point(data = holiday_data, aes(x = ds, y = yhat),
+               alpha = 0.5, size = 1.6) +
+    facet_wrap(~state, scales = "free_y") +
+    theme_bw() +
+    theme(legend.title = element_blank()) +
+    scale_x_date(date_breaks = "1 month", labels = function(d) format(d, "%b")) +
+    labs(title = glue("{YEAR} in-sample fit: two different models"),
+         y = paste("in-sample prediction for", DAILY_REVIEWS_YLAB),
+         x = "Date")
+}
+
+
 #' Makes a plot of the Germany and Scotland outliers for the
 #' years 2008-2010. This plot should be displayed very small.
 make_european_outliers_plot <- function(outlier_dat) {
@@ -219,6 +241,22 @@ make_european_outliers_plot <- function(outlier_dat) {
     theme(axis.title.x = element_blank()) +
     scale_x_date(date_breaks = "3 months",
                  labels = function(d) format(d, "%b '%y"))
+}
+
+#' pulls state and forecast out of dat into a single data.frame
+#' @param dat a rowwise_df with the columns state and forecast,
+#' where state is a scalar character and forecast is a dataframe
+#' @return a dataframe with all forecasts rowbinded, with state colbinded.
+pull_out_forecast <- function(dat) {
+  Map(function(state, fcast_dat) mutate(fcast_dat, state = state),
+      dat$state,
+      dat$forecast) %>%
+    bind_rows()
+}
+
+#' return rows for those days in dat where ds is a member of hols$ds
+take_holiday_days <- function(dat, hols) {
+  dat %>% filter(as.character(ds) %in% as.character(hols$ds))
 }
 
 ## State names for states that make it through the MIN_REVIEWS_IN_YEAR filter.
@@ -259,6 +297,7 @@ DAYS_IN_YEAR <- 365
 HORIZON <- DAYS_IN_YEAR
 RIBBON_COLOR <- "#0072B2"
 EUROPEAN_STATES <- c("Baden-Wurttemberg", "Edinburg area (Scotland)")
+DAILY_REVIEWS_YLAB <- "reviews posted on day"
 
 businesses_and_reviews <- prepare_businesses_and_reviews() %>%
   rename(state_code = state)
@@ -308,10 +347,6 @@ hols <- state_review_values_by_date$date %>%
   get_holidays()
 
 ## Vanilla plots of daily values.
-.daily_avg_stars_plot <- state_review_values_by_date %>%
-  ggplot(aes(y = mean_stars)) +
-  facet_pt_state_date +
-  x_date_scale
 .daily_review_counts_plot <- state_review_values_by_date %>%
   ggplot(aes(y = reviews)) +
   facet_pt_state_date +
@@ -369,8 +404,6 @@ partition_dates <- model_dataset %>%
             test_start = max_date - HORIZON,
             train_end = test_start - 1)
 
-train_start <- as.Date()
-
 reviews_models <- state_review_values_by_date %>%
   prepare_for_state_modeling() %>%
   model_ts()
@@ -379,18 +412,37 @@ reviews_models_hols <- state_review_values_by_date %>%
   prepare_for_state_modeling() %>%
   model_ts(holiday_frame = hols)
 
+
+stacked_forecasts <-
+  bind_rows(pull_out_forecast(reviews_models) %>%
+              mutate(group = "Without holidays"),
+            pull_out_forecast(reviews_models_hols) %>%
+              mutate(group = "With holidays"))
+
+
 ## Great!
-.reviews_facets <- plot_prophet_facets(reviews_models,
-                                       ylab = "reviews posted on day")
+.reviews_facets <- reviews_models %>%
+  plot_prophet_facets(ylab = DAILY_REVIEWS_YLAB)
 
-.reviews_facets_hols <- plot_prophet_facets(reviews_models_hols,
-                                            ylab = "reviews posted on day")
+.reviews_facets_hols <- reviews_models_hols %>%
+  plot_prophet_facets(ylab = DAILY_REVIEWS_YLAB)
 
+.holiday_vs_non_forecast_plot <- stacked_forecasts %>%
+  make_model_comparison_plot(hols, YEAR)
+
+
+## Stars. Incomplete. ##########################################################
+##
 
 stars_models <- state_review_values_by_date %>%
   additional_states_filter() %>%
   rename(ds = date, y = mean_stars) %>%
   model_var_by_state(hols)
+
+.daily_avg_stars_plot <- state_review_values_by_date %>%
+  ggplot(aes(y = mean_stars)) +
+  facet_pt_state_date +
+  x_date_scale
 
 ## So there might be some seasonal components to rating values.
 ## How interesting are the sharp downward spikes around Christmas (?) in PA?
