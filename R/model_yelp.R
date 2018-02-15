@@ -10,6 +10,7 @@ library(tis)
 library(feather)
 library(assertr)
 library(rowr)
+library(purrr)
 
 #' Read csv_basename from elsewhere-defined DATA_DIR
 read_dat <- function(csv_basename) {
@@ -89,25 +90,27 @@ get_holidays <- function(years) {
 }
 
 #' Construct daily-level fits, and forecast horizon days,
-#' for each state in state_day_frame.
-#' @param state_day_frame a dataframe with the columns
-#' state, ds (a date), and y (response variable; numeric)
+#' for each group in day_frame (if it is grouped).
+#' @param day_frame a dataframe with the columns
+#' ds (a date), and y (response variable; numeric),
+#' and possibly more grouping columns (preserved)
 #' @param holiday_frame a dataframe with the columns "holiday" and "ds",
 #' respectively the name of the holiday and the dates it fell on.
 #' If not passed, models without holidays.
 #' @param horizon scalar int; number of out-of-sample days in the future to
 #' be forecasted
-model_var_by_state <- function(state_day_frame,
-                               holiday_frame = NULL,
-                               horizon = DAYS_IN_YEAR) {
-  input_groups_frame <- state_day_frame %>%
-    select(state, ds, y) %>%
-    group_by(state)
-  args <- list(df = input_groups_frame)
-  if (!missing(holiday_frame))
-    args <- append(args, list(holidays = holiday_frame))
-  models <- do(input_groups_frame,
-               model = do.call(prophet, args))
+model_ts <- function(day_frame,
+                     holiday_frame = NULL,
+                     horizon = HORIZON) {
+  prophet_fn <-
+    if (!missing(holiday_frame)) {
+      purrr::partial(prophet, holidays = holiday_frame)
+    } else {
+      prophet
+    }
+
+  models <- do(day_frame, model = prophet_fn(df = .)) %>% ungroup()
+  models <- day_frame %>% do(model = prophet_fn(df = .)) %>% ungroup()
   models$future <- lapply(models$model,
                           function(m) make_future_dataframe(m, horizon))
   models$forecast <- Map(predict, models$model, models$future)
@@ -160,9 +163,9 @@ send_date_to_fixed_year <- function(date) {
 }
 
 #' returns the input vector of years (yyyy), and additionally all the years
-#' between the final year in the input and the current year
-extend_years_to_current <- function(year_vec)
-  c((min(year_vec) + 1):lubridate::year(Sys.Date()))
+#' between the final year in the input and the year of the target date
+extend_years_to_target <- function(year_vec, target_date)
+  c((min(year_vec) + 1):lubridate::year(target_date))
 
 #' @param dat either a dataframe representing a single group, or
 #' a grouped dataframe, that has the column y
@@ -246,21 +249,22 @@ facet_pt_state_date <- list(geom_point(aes(x = date)),
                             xlab("Date"))
 
 #' Common states filter
-additional_states_filter <- . %>%
-  filter(state %in% c("Arizona", "Pennsylvania")) ## filter(TRUE)
+additional_states_filter <- . %>% filter(TRUE)
+## filter(state %in% c("Arizona", "Pennsylvania"))
 
 DATA_DIR <- "../data"
 MIN_REVIEWS_IN_YEAR <- 300
 YEAR <- 2017
 DAYS_IN_YEAR <- 365
+HORIZON <- DAYS_IN_YEAR
 RIBBON_COLOR <- "#0072B2"
 EUROPEAN_STATES <- c("Baden-Wurttemberg", "Edinburg area (Scotland)")
 
 businesses_and_reviews <- prepare_businesses_and_reviews() %>%
   rename(state_code = state)
 
-.min_date <- min(businesses_and_reviews$date)
-.max_date <- max(businesses_and_reviews$date)
+min_date <- min(businesses_and_reviews$date)
+max_date <- max(businesses_and_reviews$date)
 .number_of_states <- length(unique(businesses_and_reviews$state_code))
 .all_time_reviews_by_state <- businesses_and_reviews %>%
   group_by(state_code) %>%
@@ -300,7 +304,7 @@ state_review_values_by_date <- businesses_and_reviews %>%
 hols <- state_review_values_by_date$date %>%
   lubridate::year() %>%
   unique() %>%
-  extend_years_to_current() %>%
+  extend_years_to_target(max_date + HORIZON) %>%
   get_holidays()
 
 ## Vanilla plots of daily values.
@@ -351,15 +355,29 @@ outlier_holidays <- state_review_values_w_outliers %>%
 ## Modeling and forecasting. ###################################################
 ##
 
+prepare_for_state_modeling <- function(dat) {
+  dat %>%
+    additional_states_filter() %>%
+    rename(ds = date, y = reviews) %>%
+    select(state, ds,  y) %>%
+    group_by(state)
+}
+
+model_input <- state_review_values_by_date %>% prepare_for_state_modeling()
+partition_dates <- model_dataset %>%
+  summarize(max_date = max(ds),
+            test_start = max_date - HORIZON,
+            train_end = test_start - 1)
+
+train_start <- as.Date()
+
 reviews_models <- state_review_values_by_date %>%
-  additional_states_filter() %>%
-  rename(ds = date, y = reviews) %>%
-  model_var_by_state()
+  prepare_for_state_modeling() %>%
+  model_ts()
 
 reviews_models_hols <- state_review_values_by_date %>%
-  additional_states_filter() %>%
-  rename(ds = date, y = reviews) %>%
-  model_var_by_state(holiday_frame = hols)
+  prepare_for_state_modeling() %>%
+  model_ts(holiday_frame = hols)
 
 ## Great!
 .reviews_facets <- plot_prophet_facets(reviews_models,

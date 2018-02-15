@@ -24,8 +24,8 @@ restaurants open on holidays?)?
 
 ## Input Data
 Input data is a subset of Yelp data. Data was provided for 11 metropolitan areas.
-Dates range from `r fmt_text_date(.min_date)` to
-`r fmt_text_date(.max_date)`. We examine trends at the state and province level
+Dates range from `r fmt_text_date(min_date)` to
+`r fmt_text_date(max_date)`. We examine trends at the state and province level
 (from here-on just "states"). Input data contains reviews from
 `r .number_of_states` states, but not all states saw enough Yelp activity to
 say interesting things about; just
@@ -152,5 +152,10 @@ holidays. This also suggests we should include these holidays in any forecasting
 There are some good strange cases here, too; Quebec's apparent celebration of
 Independence Day is especially charming.
 
+\pagebreak
 
+#### Forecasting future reviews-per-day
+
+Auto-fitting a timeseries model to each state and forecasting out
+     
 *****
