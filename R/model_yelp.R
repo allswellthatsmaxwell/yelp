@@ -11,6 +11,7 @@ library(feather)
 library(assertr)
 library(rowr)
 library(purrr)
+library(tidyr)
 
 #' Read csv_basename from elsewhere-defined DATA_DIR
 read_dat <- function(csv_basename) {
@@ -98,9 +99,12 @@ get_holidays <- function(years) {
 #' If not passed, models without holidays.
 #' @param horizon scalar int; number of out-of-sample days in the future to
 #' be forecasted
+#' @param include_history argument to prophet::make_future_dataframe;
+#' should in-sample data be forecasted?
 model_ts <- function(day_frame,
                      holiday_frame = NULL,
-                     horizon = HORIZON) {
+                     horizon = HORIZON,
+                     include_history = TRUE) {
   prophet_fn <-
     if (!missing(holiday_frame)) {
       purrr::partial(prophet, holidays = holiday_frame)
@@ -110,8 +114,10 @@ model_ts <- function(day_frame,
 
   models <- do(day_frame, model = prophet_fn(df = .)) %>% ungroup()
   models <- day_frame %>% do(model = prophet_fn(df = .)) %>% ungroup()
-  models$future <- lapply(models$model,
-                          function(m) make_future_dataframe(m, horizon))
+  models$future <-
+    lapply(models$model,
+           function(m) make_future_dataframe(m, periods = horizon,
+                                             include_history = include_history))
   models$forecast <- Map(predict, models$model, models$future)
   models
 }
@@ -217,8 +223,7 @@ make_model_comparison_plot <- function(stacked_forecast_frame, holiday_frame,
                alpha = 0.5, size = 1.6) +
     facet_wrap(~state, scales = "free_y") +
     theme_bw() +
-    theme(legend.title = element_blank()) +
-    scale_x_date(date_breaks = "1 month", labels = function(d) format(d, "%b")) +
+    one_year_settings +
     labs(title = glue("{YEAR} in-sample fit: two different models"),
          y = paste("in-sample prediction for", DAILY_REVIEWS_YLAB),
          x = "Date")
@@ -251,13 +256,60 @@ pull_out_forecast <- function(dat) {
   Map(function(state, fcast_dat) mutate(fcast_dat, state = state),
       dat$state,
       dat$forecast) %>%
-    bind_rows()
+    bind_rows() %>%
+    mutate(ds = as.Date(ds))
 }
 
 #' return rows for those days in dat where ds is a member of hols$ds
 take_holiday_days <- function(dat, hols) {
   dat %>% filter(as.character(ds) %in% as.character(hols$ds))
 }
+
+#' Filter, rename and group dat to prepare for per-state
+#' prophet modeling.
+prepare_for_state_modeling <- function(dat) {
+  dat %>%
+    additional_states_filter() %>%
+    rename(ds = date, y = reviews) %>%
+    select(state, ds,  y) %>%
+    group_by(state)
+}
+
+#' Joins dat to the forecast data in models_frame by state and ds (day),
+#' and marks it by adding the column group_name.
+join_to_state_day_fcast <- function(dat, models_frame, group_name) {
+  dat %>%
+    inner_join(pull_out_forecast(models_frame), by = c("state", "ds")) %>%
+    mutate(group = group_name)
+}
+
+#' Assigns the result of expr to name, and also saves the result
+#' of expr to ../Robj/name.rds. If ../Robj/name.rds exists,
+#' skips the computation of expr and just assigns the contents
+#' of the rds to name instead.
+`%<-%` <- function(name, expr) {
+  name_text <- deparse(substitute(name))
+  fname <- glue("../Robj/{name_text}.rds")
+  result <- tryCatch(
+    expr = {readRDS(fname)},
+    error = function(e) {
+      val <- eval(expr)
+      saveRDS(val, fname)
+      val
+    })
+  assign(name_text, result, envir = parent.frame())
+}
+
+#' mean absolute percent error of actuals y and predictions yhat
+mape <- function(y, yhat) {
+  n <- length(y)
+  if (n != length(yhat)) stop("y and yhat are of different lengths")
+  sum(abs((y - yhat) / y)) / n
+}
+
+#' ratio difference between actuals y and predictions yhat
+ratio_diff <- function(y, yhat) (y - yhat) / y
+
 
 ## State names for states that make it through the MIN_REVIEWS_IN_YEAR filter.
 ## Where state codes weren't clear, codes were manually converted by
@@ -286,6 +338,12 @@ facet_pt_state_date <- list(geom_point(aes(x = date)),
                             theme_bw(),
                             xlab("Date"))
 
+one_year_settings <-
+  list(theme(legend.title = element_blank()),
+       scale_x_date(date_breaks = "1 month",
+                    labels = function(d) format(d, "%b")))
+
+
 #' Common states filter
 additional_states_filter <- . %>% filter(TRUE)
 ## filter(state %in% c("Arizona", "Pennsylvania"))
@@ -298,6 +356,8 @@ HORIZON <- DAYS_IN_YEAR
 RIBBON_COLOR <- "#0072B2"
 EUROPEAN_STATES <- c("Baden-Wurttemberg", "Edinburg area (Scotland)")
 DAILY_REVIEWS_YLAB <- "reviews posted on day"
+WO_HOLS_NAME <- "Without holidays"
+WITH_HOLS_NAME <- "With holidays"
 
 businesses_and_reviews <- prepare_businesses_and_reviews() %>%
   rename(state_code = state)
@@ -390,34 +450,20 @@ outlier_holidays <- state_review_values_w_outliers %>%
 ## Modeling and forecasting. ###################################################
 ##
 
-prepare_for_state_modeling <- function(dat) {
-  dat %>%
-    additional_states_filter() %>%
-    rename(ds = date, y = reviews) %>%
-    select(state, ds,  y) %>%
-    group_by(state)
-}
 
 model_input <- state_review_values_by_date %>% prepare_for_state_modeling()
-partition_dates <- model_dataset %>%
-  summarize(max_date = max(ds),
-            test_start = max_date - HORIZON,
-            train_end = test_start - 1)
 
-reviews_models <- state_review_values_by_date %>%
-  prepare_for_state_modeling() %>%
-  model_ts()
-
-reviews_models_hols <- state_review_values_by_date %>%
-  prepare_for_state_modeling() %>%
-  model_ts(holiday_frame = hols)
-
+## Construct models without and with holidays marked.
+## This takes forever, so if we've done this before,
+## just read the tables from the stored rds.
+reviews_models %<-% {model_input %>% model_ts()}
+reviews_models_hols %<-% {model_input %>% model_ts(holiday_frame = hols)}
 
 stacked_forecasts <-
   bind_rows(pull_out_forecast(reviews_models) %>%
-              mutate(group = "Without holidays"),
+              mutate(group = WO_HOLS_NAME),
             pull_out_forecast(reviews_models_hols) %>%
-              mutate(group = "With holidays"))
+              mutate(group = WITH_HOLS_NAME))
 
 
 ## Great!
@@ -429,6 +475,54 @@ stacked_forecasts <-
 
 .holiday_vs_non_forecast_plot <- stacked_forecasts %>%
   make_model_comparison_plot(hols, YEAR)
+
+## Accuracy. ###################################################################
+
+## Construct the same models, but hold YEAR out of training, and forecast HORIZON.
+## This probably only makes sense if HORIZON == 365.
+reviews_models_trn %<-% {model_input %>%
+                           filter(year(ds) < YEAR) %>%
+                           model_ts(horizon = HORIZON,
+                                    include_history = FALSE)}
+
+reviews_models_hols_trn %<-% {model_input %>%
+                                filter(year(ds) < YEAR) %>%
+                                model_ts(horizon = HORIZON,
+                                         holiday_frame = hols,
+                                         include_history = FALSE)}
+
+stacked_accuracies <-
+  bind_rows(join_to_state_day_fcast(model_input, reviews_models_trn,
+                                    WO_HOLS_NAME),
+            join_to_state_day_fcast(model_input, reviews_models_hols_trn,
+                                    WITH_HOLS_NAME))
+
+.out_of_sample_year_plot <- stacked_accuracies %>%
+  ggplot(aes(x = ds)) +
+  geom_point(aes(y = y), color = "gray") +
+  geom_line(aes(y = yhat, color = group)) +
+  facet_wrap(~state, scales = "free_y") +
+  theme_bw() +
+  one_year_settings
+
+mapes <- stacked_accuracies %>%
+  filter(group == WITH_HOLS_NAME) %>%
+  group_by(state) %>%
+  summarize(mape = mape(y, yhat))
+
+year_errors <- stacked_accuracies %>%
+  filter(group == WITH_HOLS_NAME) %>%
+  group_by(state) %>%
+  summarize(y_year = sum(y),
+            yhat_year = sum(yhat),
+            ratio_diff = ratio_diff(y_year, yhat_year)) %>%
+  dplyr::select(state, ratio_diff)
+
+.error_table <- inner_join(mapes, year_errors, by = "state") %>%
+  mutate(mape = scales::percent(mape),
+         `Sum-of-year % error` = scales::percent(ratio_diff)) %>%
+  dplyr::select(-ratio_diff) %>%
+  rename(State = state, "Avg daily % error" = mape)
 
 
 ## Stars. Incomplete. ##########################################################

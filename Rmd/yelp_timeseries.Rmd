@@ -184,7 +184,7 @@ to observe:
 
 \pagebreak
 
-###### Marking holidays
+##### Marking holidays
 We discovered in a previous section that a lot of outliers coincide with
 holidays. Treating holidays specially may improve the forecast. Fitting the
 same model as above, but including the holidays from the previous section,
@@ -204,6 +204,50 @@ do not commonly coincide with extreme values, did not hurt the model's ability
 to discriminate between (in-sample) true extreme holidays and 
 technically-holidays-but-pretty-normal days.
 
-###### Choosing a model
+\pagebreak
+
+##### Choosing a model
+
+The in-sample twelve-year view suggests that our fits are smart
+and reasonable. But so far we've only seen fits on in-sample data.
+We now examine out-of-sample error. As before, we fit models with and without
+holidays, but this time the models are trained only up to the end
+of 2016. Then we forecast 2017.
+
+```{r include = TRUE, echo = FALSE, dpi = 50}
+.out_of_sample_year_plot + pdf_gg_facet_theme
+```
+
+Though the fits are reasonable, we must also expect a decent amount of
+error day-to-day. We also see that, for all our holiday considerations
+in previous sections, the model actually declines to dive and arc as it
+did on the in-sample holidays, and the two models are almost identical!
+So we go on to report accuracy measures on the with-marked-holidays model, but
+we would do just as well with the holiday-agnostic model.
+
+##### Accuracy
+The average *daily* percentage error per state for this 365-day forecast
+on 2017 is as follows:
+
+```{r include = TRUE, echo = FALSE, results = "asis"}
+.error_table %>%
+    xtable::xtable(align = "lccc") %>%
+    print(type = "latex", include.rownames = FALSE, comment = FALSE)
+```
+
+* The interpretation of Avg daily % error is:
+  If we forecasted the reviews
+  for every day in 2017 for, e.g., North Carolia, the forecasted value for
+  a given day would be, on average, 14% off the mark.
+
+* The interpretation of the sum-of-year percentage error is:
+  If, at the end of 2016, we had forecasted the total-reviews-in-year
+  for 2017 for, e.g., North Carolia, the forecasted year total would have been
+  0.7% below the actual total.
+
+Some states see impressive sum-of-year accuracies; others see impressive average
+daily accuracy. Whether any state model is sufficiently accurate
+must be considered in the context of what the important accuracy measure is.
+
 
 *****

@@ -23,3 +23,9 @@ extract_csv_name <- function(csv_filename) {
   if (all(is.na(matches))) stop(glue("{csv_filename} is not a valid csv name"))
   matches[,2]
 }
+
+.error_by_day_plot <- stacked_accuracies %>%
+  mutate(error = y - yhat) %>%
+  ggplot(aes(x = ds, y = error, color = group)) +
+  geom_line() +
+  facet_wrap(~state)
