@@ -2,15 +2,6 @@
 library(forecast)
 library(magrittr)
 
-combine_ts_train_test <- function(y_trn, y_tst, yhat,
-                                  trn_start, trn_end,
-                                  tst_start, tst_end) {
-  tibble(ds = trn_start:test_end,
-         y = c(y_trn, y_tst, yhat),
-         type = c(rep("actual", length(y_trn) + length(y_tst)),
-                  rep("fcast", length(yhat))))
-}
-
 
 #' get n lags from point t (n <= t) in y
 #' (i.e. each of y[t-1], y[t-2], ..., y[n+1], y[n])
@@ -32,7 +23,66 @@ get_n_lag_matrix <- function(y, n) {
     do.call(rbind, .)
 }
 
-get_last_n <- function(vec, n) vec[(length(vec) - n + 1):length(vec)]
+
+#' Train and return an xgboost model where the response
+#' variable is y[i] and the input features are n lags of
+#' y. y must already be ordered properly
+train_xg <- function(y, nlags) {
+  trn_lag_mat <- get_n_lag_matrix(y, nlags)
+  trn_response <- trn_lag_mat[,1]
+  trn_predictors <- trn_lag_mat[,-1]
+  xgboost(trn_predictors, trn_response, nrounds = 100)
+}
+
+#' Predict using lags as predictors. Where known lags don't exist because
+#' it is the future, predicted values are used instead.
+#' This is accomplished by using the ith prediction as the
+#' 1st lag on the (i + 1)th prediction step, the (i-1)th prediction
+#' as the second lag, and so on.
+#' @param model a model with a predict function that was
+#' trained on nlags columns (one column per lag) (currently
+#' maybe only xgboost works)
+#' @param y the same y used to train the model
+#' @param horizon the number of period to predict
+#' @param nlags the number of lags used to train the model
+walk_prediction <- function(model, y, horizon, nlags) {
+  ## The first prediction uses nlag true values from y;
+  ## each subsequent prediction step throws one true value out
+  ## from early in y and tacks the predicted value onto the
+  ## end, and this happens horizon times. so we'll eventually be
+  ## using nlags + horizon values from this vector (but only nlags
+  ## at a time).
+  short_y <- rep(as.numeric(NA), nlags + horizon)
+  short_y[1:nlags] <- take_last_n(y, nlags)
+  for (i in 1:horizon) {
+    t_i <- nlags + i
+    lags_for_predict <- get_lags(short_y, t_i, nlags)
+    short_y[t_i] <- predict(model, newdata = lags_for_predict)
+  }
+  take_last_n(short_y, horizon)
+}
+
+
+#' generate dates from test_start to horizon days after test_start
+generate_test_ds <- function(test_start, horizon) {
+  seq.Date(from = test_start,
+           to = (test_start + horizon - 1),
+           by = 1)
+}
+
+#' get daily errors between true and predicted values
+#' @param true_dat, pred_dat dataframes with the columns ds and y
+#' @return a dataframe with one record per day and
+#' the columns ds and y_minus_yhat
+get_daily_errors <- function(true_dat, pred_dat) {
+  inner_join(select(true_dat, ds, y),
+             select(pred_dat, ds, y),
+             by = "ds",
+             suffix = c("", "hat")) %>%
+    mutate(y_minus_yhat = y - yhat)
+}
+
+take_last_n <- function(vec, n) vec[(length(vec) - n + 1):length(vec)]
 
 roll_validation <- function(dat, earliest_date, horizon) {
 
@@ -47,7 +97,7 @@ one_state_dat <- state_review_values_by_date %>%
   select(-state)
 
 train_start <- min(one_state_dat$ds)
-train_end <- as.Date("2016-07-01")
+train_end <- as.Date("2016-06-30")
 test_start <- train_end + 1
 test_end <- max(one_state_dat$ds)
 
@@ -68,6 +118,10 @@ trn <- one_state_dat_complete %>% filter(period == "train")
 tst <- one_state_dat_complete %>% filter(period == "test")
 y_trn <- trn %>% arrange(ds) %$% ts(y)
 y_tst <- tst %>% arrange(ds) %$% ts(y)
+
+####
+## Neural net (FF, single hidden layer... poor default performance) ############
+####
 
 model <- nnetar(y_trn)
 
@@ -94,40 +148,66 @@ fcast_dat %>%
   geom_point(alpha = 0.2) +
   theme_bw()
 
+######
+## Single-state prophet. #######################################################
+######
 
-## Forecasting with ensemble model.
+proph <- prophet(trn)
+prophet_preds_frame <-
+  predict(proph, tibble(ds = generate_test_ds(test_start, horizon))) %>%
+  mutate(ds = as.Date(ds), type = "prophet") %>%
+  rename(y = yhat) %>%
+  select(ds, y, type)
 
 
-model_xg <- function(trn, tst, horizon, nlags) {
-  ## Must not use lags from the test set; that's cheating.
-  ## But I don't think the line below accomplishes anything
-  ## toward this goal...
-  trn_fair_horizon <- trn %>% filter(ds <= max(trn$ds) - horizon)
-  xg_y_trn <- trn_fair_horizon$y
-  ## We can use the lags from the training set to predict out-of-sample
-  ## values. This isn't cheating.
-  xg_y_tst <- c(get_last_n(xg_y_trn, nlags),
-                tst$y)
-  trn_lag_mat <- get_n_lag_matrix(xg_y_trn, nlags)
-  trn_response <- trn_lag_mat[,1]
-  trn_predictors <- trn_lag_mat[,-1]
-  tst_lag_mat <- get_n_lag_matrix(xg_y_tst, NLAGS)
-  tst_response <- tst_lag_mat[,1]
-  tst_predictors <- tst_lag_mat[,-1]
-  xg_model <- xgboost(trn_predictors, trn_response, nrounds = 100)
-  ## xg_fit <- predict(xg_model, newdata = trn_lag_mat)
-  xg_fcast <- predict(xg_model, newdata = tst_lag_mat)
-  tibble(ds = tst$ds, y = xg_fcast)
-}
 
-horizon <- 30
+######
+## Forecasting with ensemble model. ############################################
+######
+
+horizon <- 365
 NLAGS <- 365
+
+y_trn <- trn %>% arrange(ds) %$% y
+xg <- train_xg(y_trn, NLAGS)
+xg_preds <- walk_prediction(xg, y_trn, horizon, NLAGS)
+
+xg_preds_frame <- tibble(ds = generate_test_ds(test_start, horizon),
+                         y = xg_preds,
+                         type = glue("xg pred ({NLAGS})"))
+
+bind_rows(trn,
+          tst,
+          xg_preds_frame,
+          proph_preds_frame) %>%
+  filter(ds <= test_start + horizon - 1) %>%
+  filter(ds > test_start - 0 * horizon) %>%
+  ggplot(aes(x = ds, y = y, color = type)) +
+  geom_line() +
+  theme_bw()
+
+xg_errors <- get_daily_errors(tst, xg_preds_frame) %>%
+  mutate(type = "xg")
+ph_errors <- get_daily_errors(tst, prophet_preds_frame) %>%
+  mutate(type = "prophet")
+
+bind_rows(xg_errors, ph_errors) %>%
+  ggplot(aes(x = ds, y = y_minus_yhat, color = type)) +
+  geom_point() +
+  theme_bw() +
+  geom_hline(yintercept = 0)
+
+
+
+
+## a mess follows ##############################################################
+
 trn_fair_horizon <- trn %>% filter(ds < max(trn$ds) - horizon)
 
 xg_y_trn <- trn %>% arrange(ds) %$% y
 ## We can use the lags from the training set to predict out-of-sample
 ## values. This isn't cheating.
-xg_y_tst <- tst %>% arrange(ds) %$% y %>% {c(get_last_n(xg_y_trn, NLAGS), .)}
+xg_y_tst <- tst %>% arrange(ds) %$% y %>% {c(take_last_n(xg_y_trn, NLAGS), .)}
 
 trn_lag_mat <- get_n_lag_matrix(xg_y_trn, NLAGS)
 trn_response <- trn_lag_mat[,1]
