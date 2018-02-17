@@ -223,7 +223,10 @@ error day-to-day. We also see that, for all our holiday considerations
 in previous sections, the model actually declines to dive and arc as it
 did on the in-sample holidays, and the two models are almost identical!
 So we go on to report accuracy measures on the with-marked-holidays model, but
-we would do just as well with the holiday-agnostic model.
+we would do just as well with the holiday-agnostic model. Finally, we notice
+that though the direction and acceleration of the year-to-year upward trends
+are nicely captured, forecasts often fail to cut through the middle of the
+points, instead tending to over-forecast most days.
 
 ##### Accuracy
 The average *daily* percentage error per state for this 365-day forecast
@@ -249,5 +252,10 @@ Some states see impressive sum-of-year accuracies; others see impressive average
 daily accuracy. Whether any state model is sufficiently accurate
 must be considered in the context of what the important accuracy measure is.
 
+Depending on the application, forecasts can be made on horizons much shorter
+than 365 days, and will be more accurate the shorter the horizon. But
+yearly forecasts have their place too. For example, if Yelp were considering
+how many more servers to buy in a state, a yearly forecast of total reviews
+can inform the decision (though modeling traffic per day would be better).
 
 *****

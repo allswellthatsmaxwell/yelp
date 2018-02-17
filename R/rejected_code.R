@@ -29,3 +29,57 @@ extract_csv_name <- function(csv_filename) {
   ggplot(aes(x = ds, y = error, color = group)) +
   geom_line() +
   facet_wrap(~state)
+
+
+
+
+
+## a mess follows ##############################################################
+
+trn_fair_horizon <- trn %>% filter(ds < max(trn$ds) - horizon)
+
+xg_y_trn <- trn %>% arrange(ds) %$% y
+## We can use the lags from the training set to predict out-of-sample
+## values. This isn't cheating.
+xg_y_tst <- tst %>% arrange(ds) %$% y %>% {c(take_last_n(xg_y_trn, NLAGS), .)}
+
+trn_lag_mat <- get_n_lag_matrix(xg_y_trn, NLAGS)
+trn_response <- trn_lag_mat[,1]
+trn_predictors <- trn_lag_mat[,-1]
+
+tst_lag_mat <- get_n_lag_matrix(xg_y_tst, NLAGS)
+tst_response <- tst_lag_mat[,1]
+tst_predictors <- tst_lag_mat[,-1]
+
+xg_model <- xgboost(trn_predictors, trn_response, nrounds = 100)
+xg_fit <- predict(xg_model, newdata = trn_lag_mat)
+xg_fcast <- predict(xg_model, newdata = tst_lag_mat)
+
+xg_trn_ds <- seq.Date(train_start + NLAGS, train_end, by = 1)
+xg_tst_ds <- seq.Date(test_start, test_end, by = 1)
+
+xg_fit_frame <- tibble(ds = xg_trn_ds, y = xg_fit,
+                       type = glue("xgboost ({NLAGS})")) %>%
+  bind_rows(tibble(ds = xg_trn_ds, y = trn_response,
+                   type = "actual"))
+
+xg_fcast_frame <- tibble(ds = xg_tst_ds, y = xg_fcast,
+                         type = glue("xgboost ({NLAGS})")) %>%
+  bind_rows(tibble(ds = xg_tst_ds, y = tst_response,
+                   type = "actual"))
+
+xg_fit_frame %>% ggplot(aes(x = ds, y = y, color = type)) +
+  geom_line() +
+  theme_bw()
+
+xg_fcast_frame %>% ggplot(aes(x = ds, y = y, color = type)) +
+  geom_line() +
+  theme_bw()
+
+multiple_models_frame <- xg_fcast_frame %>%
+  bind_rows(mutate(prophet_result, type = "prophet"))
+
+multiple_models_frame %>%
+  ggplot(aes(x = ds, y = y, color = type)) +
+  geom_line() +
+  theme_bw()
