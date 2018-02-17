@@ -90,4 +90,36 @@ get_n_lag_matrix <- function(y, n) {
 }
 
 
-Y_trn_mat <- get_n_lag_matrix(y_trn, 10)
+NLAGS <- 100
+trn_lag_mat <- get_n_lag_matrix(y_trn, NLAGS)
+trn_response <- trn_lag_mat[,1]
+trn_predictors <- trn_lag_mat[,-1]
+
+tst_lag_mat <- get_n_lag_matrix(y_tst, NLAGS)
+tst_response <- tst_lag_mat[,1]
+tst_predictors <- tst_lag_mat[,-1]
+
+xg_model <- xgboost(trn_predictors, trn_response, nrounds = 200)
+xg_fit <- predict(xg_model, newdata = trn_lag_mat)
+xg_fcast <- predict(xg_model, newdata = tst_lag_mat)
+
+xg_trn_ds <- seq.Date(train_start + NLAGS, train_end, by = 1)
+xg_tst_ds <- seq.Date(test_start + NLAGS, test_end, by = 1)
+
+xg_fit_frame <- tibble(ds = xg_trn_ds, y = xg_fit,
+                       type = glue("xgboost ({NLAGS})")) %>%
+  bind_rows(tibble(ds = xg_trn_ds, y = trn_response,
+                   type = "actual"))
+
+xg_fcast_frame <- tibble(ds = xg_tst_ds, y = xg_fcast,
+                         type = glue("xgboost ({NLAGS})")) %>%
+  bind_rows(tibble(ds = xg_tst_ds, y = tst_response,
+                   type = "actual"))
+
+xg_fit_frame %>% ggplot(aes(x = ds, y = y, color = type)) +
+  geom_line() +
+  theme_bw()
+
+xg_fcast_frame %>% ggplot(aes(x = ds, y = y, color = type)) +
+  geom_line() +
+  theme_bw()
