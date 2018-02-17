@@ -1,17 +1,3 @@
-library(prophet)
-library(ggplot2)
-library(dplyr)
-library(magrittr)
-library(purrr)
-library(glue)
-library(readr)
-library(lubridate)
-library(tis)
-library(feather)
-library(assertr)
-library(rowr)
-library(purrr)
-library(tidyr)
 
 #' Read csv_basename from elsewhere-defined DATA_DIR
 read_dat <- function(csv_basename) {
@@ -19,35 +5,6 @@ read_dat <- function(csv_basename) {
                   progress = FALSE)
 }
 
-#' Make the usual plot.prophet plot, but repeat in facets for every state.
-plot_prophet_facets <- function(models, ylabel) {
-  prophet_frames_by_state <-
-    Map(function(state, model, fcast) {
-      prophet:::df_for_plotting(model, fcast) %>% mutate(state = state)
-    },
-    models$state, models$model, models$forecast) %>%
-    bind_rows()
-  prophet_frames_by_state %>%
-    ggplot(aes(x = as.Date(ds), y = y)) +
-    facet_wrap(~state, scales = "free_y") +
-    theme_bw() +
-    ylab(ylabel) +
-    xlab("date") +
-    scale_x_date(date_breaks = "1 year",
-                 labels = function(d) format(d, "%b %Y"),
-                 minor_breaks = NULL) +
-    theme(axis.text.x = element_text(angle = 90)) +
-    ## Elements stolen from prophet::plot.prophet
-    geom_ribbon(aes(ymin = yhat_lower, ymax = yhat_upper),
-                alpha = 0.2, fill = RIBBON_COLOR, na.rm = TRUE) +
-    geom_point(na.rm = TRUE, alpha = 0.5, color = "gray") +
-    geom_line(aes(y = yhat), color = RIBBON_COLOR, na.rm = TRUE)
-    ##geom_point(data = prophet_frames_by_state %>% filter(between(month(ds), 6, 8)),
-    ##           aes(y = yhat),
-    ##           color = "red",
-    ##           size = 0.1,
-    ##           alpha = 0.5)
-}
 
 #' Cast numeric date of the form yyyymmdd to a proper date.
 yyyymmdd_to_date <- function(dates) {
@@ -145,22 +102,6 @@ prepare_businesses_and_reviews <- function() {
   }
 }
 
-.count_n_above <- function(tallied_dat, n_min) {
-  tallied_dat %>% filter(n >= n_min) %>% nrow()
-}
-
-#' Orders input nicely and gives it proper names.
-.prepare_outlier_holidays_for_print <- function(outlier_holiday_dat) {
-  outlier_holiday_dat %>%
-    group_by(holiday) %>%
-    mutate(total_appearances = sum(appearances_of_day_in_state)) %>%
-    arrange(desc(total_appearances),
-            desc(appearances_of_day_in_state),
-            state) %>%
-    select(-total_appearances) %>%
-    rename("State" = state, "Holiday" = holiday,
-           "Outliers (all-time)" = appearances_of_day_in_state)
-}
 
 #' sends input date yyyy-mm-dd to 1900-mm-dd
 send_date_to_fixed_year <- function(date) {
@@ -187,65 +128,6 @@ get_outlier_dates <- function(dat, sd_factor) {
     mutate(top = y_wo_year_trend_avg + sd_factor * y_wo_year_trend_sd,
            bot = y_wo_year_trend_avg - sd_factor * y_wo_year_trend_sd,
            outlier = !between(y_wo_year_trend, bot, top))
-}
-
-#' Plots year-detrended reviews per day, by state, identifying
-#' outliers and standard-deviation regions by color
-make_outlier_plot <- function(outlier_dat) {
-  outlier_dat %>%
-    filter(!is.na(outlier)) %>%
-    ggplot(aes(x = date, y = y_wo_year_trend)) +
-    geom_point(aes(color = outlier, shape = outlier)) +
-    geom_line(aes(y = y_wo_year_trend_avg), color = "white") +
-    facet_wrap(~state, scales = "free_y") +
-    theme_bw() +
-    scale_color_manual(values = c("black", "red")) +
-    x_date_scale +
-    ylab("# reviews on day") +
-    geom_ribbon(aes(x = date, ymin = bot, ymax = top),
-                alpha = 0.2,
-                fill = RIBBON_COLOR,
-                 na.rm = TRUE)
-}
-
-#' returns a per-state plot with one line per level of stacked_forecast_frame,
-#' and one point per date in holiday_frame, for the subset of rows with
-#' year(stacked_input_frame$ds) equal to YEAR.
-make_model_comparison_plot <- function(stacked_forecast_frame, holiday_frame,
-                                       year = YEAR) {
-  fcast_year <- stacked_forecast_frame %>% filter(year(ds) == YEAR) %>%
-    mutate(ds = as.Date(ds))
-  holiday_data <- take_holiday_days(fcast_year, holiday_frame)
-  fcast_year %>%
-    ggplot(aes(x = ds, y = yhat)) +
-    geom_line(aes(color = group), alpha = 0.8) +
-    geom_point(data = holiday_data, aes(x = ds, y = yhat),
-               alpha = 0.5, size = 1.6) +
-    facet_wrap(~state, scales = "free_y") +
-    theme_bw() +
-    one_year_settings +
-    labs(title = glue("{YEAR} in-sample fit: two different models"),
-         y = paste("in-sample prediction for", DAILY_REVIEWS_YLAB),
-         x = "Date")
-}
-
-
-#' Makes a plot of the Germany and Scotland outliers for the
-#' years 2008-2010. This plot should be displayed very small.
-make_european_outliers_plot <- function(outlier_dat) {
-  outlier_dat %>%
-    filter(outlier,
-           state %in% EUROPEAN_STATES,
-           between(year(date), 2008, 2010)) %>%
-    group_by(state, date) %>%
-    tally() %>%
-    arrange(desc(n)) %>%
-    ggplot(aes(x = date, y = state)) +
-    geom_point() +
-    theme_bw() +
-    theme(axis.title.x = element_blank()) +
-    scale_x_date(date_breaks = "3 months",
-                 labels = function(d) format(d, "%b '%y"))
 }
 
 #' pulls state and forecast out of dat into a single data.frame
@@ -311,6 +193,110 @@ mape <- function(y, yhat) {
 ratio_diff <- function(y, yhat) (y - yhat) / y
 
 
+#' Plots year-detrended reviews per day, by state, identifying
+#' outliers and standard-deviation regions by color
+.make_outlier_plot <- function(outlier_dat) {
+  outlier_dat %>%
+    filter(!is.na(outlier)) %>%
+    ggplot(aes(x = date, y = y_wo_year_trend)) +
+    geom_point(aes(color = outlier, shape = outlier)) +
+    geom_line(aes(y = y_wo_year_trend_avg), color = "white") +
+    facet_wrap(~state, scales = "free_y") +
+    theme_bw() +
+    scale_color_manual(values = c("black", "red")) +
+    x_date_scale +
+    ylab("# reviews on day") +
+    geom_ribbon(aes(x = date, ymin = bot, ymax = top),
+                alpha = 0.2,
+                fill = RIBBON_COLOR,
+                 na.rm = TRUE)
+}
+
+#' Make the usual plot.prophet plot, but repeat in facets for every state.
+.plot_prophet_facets <- function(models, ylabel) {
+  prophet_frames_by_state <-
+    Map(function(state, model, fcast) {
+      prophet:::df_for_plotting(model, fcast) %>% mutate(state = state)
+    },
+    models$state, models$model, models$forecast) %>%
+    bind_rows()
+  prophet_frames_by_state %>%
+    ggplot(aes(x = as.Date(ds), y = y)) +
+    facet_wrap(~state, scales = "free_y") +
+    theme_bw() +
+    ylab(ylabel) +
+    xlab("date") +
+    scale_x_date(date_breaks = "1 year",
+                 labels = function(d) format(d, "%b %Y"),
+                 minor_breaks = NULL) +
+    theme(axis.text.x = element_text(angle = 90)) +
+    ## Elements stolen from prophet::plot.prophet
+    geom_ribbon(aes(ymin = yhat_lower, ymax = yhat_upper),
+                alpha = 0.2, fill = RIBBON_COLOR, na.rm = TRUE) +
+    geom_point(na.rm = TRUE, alpha = 0.5, color = "gray") +
+    geom_line(aes(y = yhat), color = RIBBON_COLOR, na.rm = TRUE)
+}
+
+#' returns a per-state plot with one line per level of stacked_forecast_make_outlier_plotframe,
+#' and one point per date in holiday_frame, for the subset of rows with
+#' year(stacked_input_frame$ds) equal to YEAR.
+.make_model_comparison_plot <- function(stacked_forecast_frame, holiday_frame,
+                                       year = YEAR) {
+  fcast_year <- stacked_forecast_frame %>% filter(year(ds) == YEAR) %>%
+    mutate(ds = as.Date(ds))
+  holiday_data <- take_holiday_days(fcast_year, holiday_frame)
+  fcast_year %>%
+    ggplot(aes(x = ds, y = yhat)) +
+    geom_line(aes(color = group), alpha = 0.8) +
+    geom_point(data = holiday_data, aes(x = ds, y = yhat),
+               alpha = 0.5, size = 1.6) +
+    facet_wrap(~state, scales = "free_y") +
+    theme_bw() +
+    one_year_settings +
+    labs(title = glue("{YEAR} in-sample fit: two different models"),
+         y = paste("in-sample prediction for", DAILY_REVIEWS_YLAB),
+         x = "Date")
+}
+
+
+#' Makes a plot of the Germany and Scotland outliers for the
+#' years 2008-2010. This plot should be displayed very small.
+.make_european_outliers_plot <- function(outlier_dat) {
+  outlier_dat %>%
+    filter(outlier,
+           state %in% EUROPEAN_STATES,
+           between(year(date), 2008, 2010)) %>%
+    group_by(state, date) %>%
+    tally() %>%
+    arrange(desc(n)) %>%
+    ggplot(aes(x = date, y = state)) +
+    geom_point() +
+    theme_bw() +
+    theme(axis.title.x = element_blank()) +
+    scale_x_date(date_breaks = "3 months",
+                 labels = function(d) format(d, "%b '%y"))
+}
+
+#' return the number of rows in tallied_dat where n >= n_min
+.count_n_above <- function(tallied_dat, n_min) {
+  tallied_dat %>% filter(n >= n_min) %>% nrow()
+}
+
+
+#' Orders input nicely and gives it proper names.
+.prepare_outlier_holidays_for_print <- function(outlier_holiday_dat) {
+  outlier_holiday_dat %>%
+    group_by(holiday) %>%
+    mutate(total_appearances = sum(appearances_of_day_in_state)) %>%
+    arrange(desc(total_appearances),
+            desc(appearances_of_day_in_state),
+            state) %>%
+    select(-total_appearances) %>%
+    rename("State" = state, "Holiday" = holiday,
+           "Outliers (all-time)" = appearances_of_day_in_state)
+}
+
+
 ## State names for states that make it through the MIN_REVIEWS_IN_YEAR filter.
 ## Where state codes weren't clear, codes were manually converted by
 ## looking at cities in the dataset.
@@ -347,6 +333,21 @@ one_year_settings <-
 #' Common states filter
 additional_states_filter <- . %>% filter(TRUE)
 ## filter(state %in% c("Arizona", "Pennsylvania"))
+
+library(prophet)
+library(ggplot2)
+library(dplyr)
+library(magrittr)
+library(purrr)
+library(glue)
+library(readr)
+library(lubridate)
+library(tis)
+library(feather)
+library(assertr)
+library(rowr)
+library(purrr)
+library(tidyr)
 
 DATA_DIR <- "../data"
 MIN_REVIEWS_IN_YEAR <- 300
@@ -441,7 +442,7 @@ outlier_holidays <- state_review_values_w_outliers %>%
 
 
 .daily_review_counts_plot_w_outliers <- state_review_values_w_outliers %>%
-  make_outlier_plot()
+  .make_outlier_plot()
 .european_outliers_plot <- state_review_values_w_outliers %>%
   make_european_outliers_plot()
 .outlier_holidays <- outlier_holidays %>% .prepare_outlier_holidays_for_print()
@@ -468,26 +469,28 @@ stacked_forecasts <-
 
 ## Great!
 .reviews_facets <- reviews_models %>%
-  plot_prophet_facets(ylab = DAILY_REVIEWS_YLAB)
+  .plot_prophet_facets(ylab = DAILY_REVIEWS_YLAB)
 
 .reviews_facets_hols <- reviews_models_hols %>%
-  plot_prophet_facets(ylab = DAILY_REVIEWS_YLAB)
+  .plot_prophet_facets(ylab = DAILY_REVIEWS_YLAB)
 
 .holiday_vs_non_forecast_plot <- stacked_forecasts %>%
-  make_model_comparison_plot(hols, YEAR)
+  .make_model_comparison_plot(hols, YEAR)
 
 ## Accuracy. ###################################################################
 
-## Construct the same models, but hold YEAR out of training, and forecast HORIZON.
-## This probably only makes sense if HORIZON == 365.
+train_end <- as.Date("2016-07-01")
+horizon <- as.integer(max_date - train_end)
+## Construct the same models, but only up to train_end, then forecast
+## HORIZON days.
 reviews_models_trn %<-% {model_input %>%
-                           filter(year(ds) < YEAR) %>%
-                           model_ts(horizon = HORIZON,
+                           filter(ds <= train_end) %>%
+                           model_ts(horizon = horizon,
                                     include_history = FALSE)}
 
 reviews_models_hols_trn %<-% {model_input %>%
-                                filter(year(ds) < YEAR) %>%
-                                model_ts(horizon = HORIZON,
+                                filter(ds <= train_end) %>%
+                                model_ts(horizon = horizon,
                                          holiday_frame = hols,
                                          include_history = FALSE)}
 

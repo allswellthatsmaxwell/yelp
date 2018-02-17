@@ -15,7 +15,7 @@ pdf_gg_facet_theme <- list(theme(strip.text.x = element_text(size = 30),
                                  axis.text = element_text(size = 26),
                                  axis.text.x = element_text(angle = 90),
                                  axis.title = element_text(size = 34),
-                                 legend.text = element_text(size = 34),
+                                 legend.text = element_text(size = 32),
                                  title = element_text(size = 42)))
 ```
 
@@ -218,7 +218,7 @@ of 2016. Then we forecast 2017.
 .out_of_sample_year_plot + pdf_gg_facet_theme
 ```
 
-Though the fits are reasonable, we must also expect a decent amount of
+So although the fits are reasonable, we also get a decent amount of
 error day-to-day. We also see that, for all our holiday considerations
 in previous sections, the model actually declines to dive and arc as it
 did on the in-sample holidays, and the two models are almost identical!
