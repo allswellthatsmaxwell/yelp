@@ -11,6 +11,33 @@ combine_ts_train_test <- function(y_trn, y_tst, yhat,
                   rep("fcast", length(yhat))))
 }
 
+
+#' get n lags from point t (n <= t) in y
+#' (i.e. each of y[t-1], y[t-2], ..., y[n+1], y[n])
+get_lags <- function(y, t, n) {
+  if (n > t) stop (glue("must have n <= t (got n = {n}, t = {t})"))
+  lags <- sapply(1:n, function(i) y[t - i])
+  matrix(lags, nrow = 1)
+}
+
+#' expands y into a (length(y) - n)-by-(n + 1) matrix,
+#' where for j == 1, m[i,j] is y[i] and for j > 1, m[i, j] is
+#' the jth lag of y[i].
+#' @param y a timeseries
+#' @param n a scalar int: number of lags to capture
+get_n_lag_matrix <- function(y, n) {
+  ylen <- length(y)
+  lapply((n + 1):ylen,
+         function(t) cbind(y[t], get_lags(y, t, n))) %>%
+    do.call(rbind, .)
+}
+
+get_last_n <- function(vec, n) vec[(length(vec) - n + 1):length(vec)]
+
+roll_validation <- function(dat, earliest_date, horizon) {
+
+}
+
 STATE <- "Arizona"
 
 one_state_dat <- state_review_values_by_date %>%
@@ -60,7 +87,8 @@ prophet_result <- stacked_accuracies %>%
   rename(type = group, y = yhat) %>%
   filter(type == WITH_HOLS_NAME)
 
-fcast_dat %>% bind_rows(fit_dat, one_state_dat_complete, prophet_result) %>%
+fcast_dat %>%
+  bind_rows(fit_dat, one_state_dat_complete, prophet_result) %>%
   filter(year(ds) >= 2015) %>%
   ggplot(aes(x = ds, y = y, color = type)) +
   geom_point(alpha = 0.2) +
@@ -69,42 +97,52 @@ fcast_dat %>% bind_rows(fit_dat, one_state_dat_complete, prophet_result) %>%
 
 ## Forecasting with ensemble model.
 
-#' get n lags from point t (n <= t) in y
-#' (i.e. each of y[t-1], y[t-2], ..., y[n+1], y[n])
-get_lags <- function(y, t, n) {
-  if (n > t) stop (glue("must have n <= t (got n = {n}, t = {t})"))
-  lags <- sapply(1:n, function(i) y[t - i])
-  matrix(lags, nrow = 1)
+
+model_xg <- function(trn, tst, horizon, nlags) {
+  ## Must not use lags from the test set; that's cheating.
+  ## But I don't think the line below accomplishes anything
+  ## toward this goal...
+  trn_fair_horizon <- trn %>% filter(ds <= max(trn$ds) - horizon)
+  xg_y_trn <- trn_fair_horizon$y
+  ## We can use the lags from the training set to predict out-of-sample
+  ## values. This isn't cheating.
+  xg_y_tst <- c(get_last_n(xg_y_trn, nlags),
+                tst$y)
+  trn_lag_mat <- get_n_lag_matrix(xg_y_trn, nlags)
+  trn_response <- trn_lag_mat[,1]
+  trn_predictors <- trn_lag_mat[,-1]
+  tst_lag_mat <- get_n_lag_matrix(xg_y_tst, NLAGS)
+  tst_response <- tst_lag_mat[,1]
+  tst_predictors <- tst_lag_mat[,-1]
+  xg_model <- xgboost(trn_predictors, trn_response, nrounds = 100)
+  ## xg_fit <- predict(xg_model, newdata = trn_lag_mat)
+  xg_fcast <- predict(xg_model, newdata = tst_lag_mat)
+  tibble(ds = tst$ds, y = xg_fcast)
 }
 
-#' expands y into a (length(y) - n)-by-(n + 1) matrix,
-#' where for j == 1, m[i,j] is y[i] and for j > 1, m[i, j] is
-#' the jth lag of y[i].
-#' @param y a timeseries
-#' @param n a scalar int: number of lags to capture
-get_n_lag_matrix <- function(y, n) {
-  ylen <- length(y)
-  lapply((n + 1):ylen,
-         function(t) cbind(y[t], get_lags(y, t, n))) %>%
-    do.call(rbind, .)
-}
+horizon <- 30
+NLAGS <- 365
+trn_fair_horizon <- trn %>% filter(ds < max(trn$ds) - horizon)
 
+xg_y_trn <- trn %>% arrange(ds) %$% y
+## We can use the lags from the training set to predict out-of-sample
+## values. This isn't cheating.
+xg_y_tst <- tst %>% arrange(ds) %$% y %>% {c(get_last_n(xg_y_trn, NLAGS), .)}
 
-NLAGS <- 100
-trn_lag_mat <- get_n_lag_matrix(y_trn, NLAGS)
+trn_lag_mat <- get_n_lag_matrix(xg_y_trn, NLAGS)
 trn_response <- trn_lag_mat[,1]
 trn_predictors <- trn_lag_mat[,-1]
 
-tst_lag_mat <- get_n_lag_matrix(y_tst, NLAGS)
+tst_lag_mat <- get_n_lag_matrix(xg_y_tst, NLAGS)
 tst_response <- tst_lag_mat[,1]
 tst_predictors <- tst_lag_mat[,-1]
 
-xg_model <- xgboost(trn_predictors, trn_response, nrounds = 200)
+xg_model <- xgboost(trn_predictors, trn_response, nrounds = 100)
 xg_fit <- predict(xg_model, newdata = trn_lag_mat)
 xg_fcast <- predict(xg_model, newdata = tst_lag_mat)
 
 xg_trn_ds <- seq.Date(train_start + NLAGS, train_end, by = 1)
-xg_tst_ds <- seq.Date(test_start + NLAGS, test_end, by = 1)
+xg_tst_ds <- seq.Date(test_start, test_end, by = 1)
 
 xg_fit_frame <- tibble(ds = xg_trn_ds, y = xg_fit,
                        type = glue("xgboost ({NLAGS})")) %>%
@@ -121,5 +159,13 @@ xg_fit_frame %>% ggplot(aes(x = ds, y = y, color = type)) +
   theme_bw()
 
 xg_fcast_frame %>% ggplot(aes(x = ds, y = y, color = type)) +
+  geom_line() +
+  theme_bw()
+
+multiple_models_frame <- xg_fcast_frame %>%
+  bind_rows(mutate(prophet_result, type = "prophet"))
+
+multiple_models_frame %>%
+  ggplot(aes(x = ds, y = y, color = type)) +
   geom_line() +
   theme_bw()
