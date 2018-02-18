@@ -479,7 +479,7 @@ stacked_forecasts <-
 
 ## Accuracy. ###################################################################
 
-train_end <- as.Date("2016-07-01")
+train_end <- as.Date("2016-06-30")
 horizon <- as.integer(max_date - train_end)
 ## Construct the same models, but only up to train_end, then forecast
 ## HORIZON days.
@@ -506,7 +506,8 @@ stacked_accuracies <-
   geom_line(aes(y = yhat, color = group)) +
   facet_wrap(~state, scales = "free_y") +
   theme_bw() +
-  one_year_settings
+  one_year_settings +
+  labs(x = "Date", y = DAILY_REVIEWS_YLAB)
 
 mapes <- stacked_accuracies %>%
   filter(group == WITH_HOLS_NAME) %>%

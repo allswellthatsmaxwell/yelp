@@ -1,8 +1,4 @@
 
-library(forecast)
-library(magrittr)
-
-
 #' get n lags from point t (n <= t) in y
 #' (i.e. each of y[t-1], y[t-2], ..., y[n+1], y[n])
 get_lags <- function(y, t, n) {
@@ -95,14 +91,161 @@ get_fit <- function(model, y, nlags) {
          y = yfit)
 }
 
+#' return final n elements of vec
 take_last_n <- function(vec, n) vec[(length(vec) - n + 1):length(vec)]
 
+#' roll training and prediction periods over a long timespan to get
+#' long-term idea of shorter-horizon accuracy
 roll_validation <- function(dat, earliest_date, horizon) {
 
 }
 
-STATE <- "Arizona"
+#' plot comparison between xgboost and prophet accuracy
+.plot_xg_prophet_comparison <- function(trn, tst,
+                                        xg_preds_frame,
+                                        prophet_preds_frame,
+                                        test_start,
+                                        horizon) {
+  bind_rows(trn,
+            tst,
+            xg_preds_frame,
+            prophet_preds_frame) %>%
+    filter(ds <= test_start + horizon - 1) %>%
+    filter(ds > test_start - 0 * horizon) %>%
+    ggplot(aes(x = ds, y = y, color = type)) +
+    geom_line() +
+    theme_bw() +
+    test_set_x_scale +
+    labs(x = "Date", y = DAILY_REVIEWS_YLAB) +
+    theme(legend.title = element_blank(),
+          aspect.ratio = 2/5)
+}
 
+#' plot in-sample fit
+.plot_xg_fit <- function(trn, fit_frame) {
+  fit_frame %>%
+    mutate(type = XGLABEL) %>%
+    bind_rows(trn) %>%
+    ggplot(aes(x = ds, y = y, color = type)) +
+    geom_point(alpha = 0.3, size = 4) +
+    theme_bw() +
+    scale_x_date(date_breaks = "1 year", labels = function(d) format(d, "%Y")) +
+    theme(legend.title = element_blank(),
+          legend.text = element_text(size = 30),
+          aspect.ratio = 2/5) +
+    labs(x = "Date", y = DAILY_REVIEWS_YLAB)
+}
+
+#' get day level comparisons between methods from two test set prediction
+#' frames and mark by day which did better and by how much
+get_error_comparison <- function(tst, xg_preds_frame, prophet_preds_frame) {
+  xg_errors <- get_daily_errors(tst, xg_preds_frame) %>%
+    mutate(type = XGLABEL)
+  ph_errors <- get_daily_errors(tst, prophet_preds_frame) %>%
+    mutate(type = PHLABEL)
+
+  inner_join(xg_errors, ph_errors, by = "ds", suffix = c("_xg", "_ph")) %>%
+    mutate(better = case_when(abs(y_minus_yhat_xg) < abs(y_minus_yhat_ph) ~
+                                XGLABEL,
+                              abs(y_minus_yhat_xg) > abs(y_minus_yhat_ph) ~
+                                PHLABEL,
+                              TRUE ~ "Same"),
+           error_difference = abs(y_minus_yhat_ph) - abs(y_minus_yhat_xg),
+           cumu_error_diff = cumsum(error_difference) / 1:n())
+}
+
+#' plot daily which method is better from a day-level dataframe of
+#' error comparisons
+.plot_better_by_day <- function(better_by_day_frame, nlags) {
+  better_by_day_frame %>%
+    ggplot(aes(x = ds)) +
+    geom_point(aes(y = error_difference, color = better), size = 5, alpha = 0.9) +
+    geom_line(aes(y = cumu_error_diff), size = 1.2) +
+    geom_hline(yintercept = 0, color = "purple") +
+    theme_bw() +
+    labs(x = "Date",
+         y = "Prophet error - xgboost error (in reviews per day)",
+         title = glue("Difference in error by day between xgboost with {nlags} lags, and Prophet"),
+         subtitle = glue("Days are colored by which model has the smaller absolute error.
+The black line is the cumulative better-ness of xgboost.")) +
+  theme(legend.title = element_text(size = 30),
+        aspect.ratio = 2/5) +
+  test_set_x_scale
+}
+
+
+#' Plot ds vs. y from dat
+.plot_series <- function(dat) {
+  dat %>%
+    ggplot(aes(x = ds, y = y)) +
+    geom_line() +
+    theme(aspect.ratio = 2/5) +
+    theme_bw()
+}
+
+#' build prophet model from trn and use it to forecast horizon days
+#' forward from test_start
+get_prophet_prediction <- function(trn, test_start, horizon) {
+  proph <- prophet(trn)
+  prophet_preds_frame <-
+    predict(proph, tibble(ds = generate_test_ds(test_start, horizon))) %>%
+    mutate(ds = as.Date(ds), type = PHLABEL) %>%
+    rename(y = yhat) %>%
+    select(ds, y, type)
+  prophet_preds_frame
+}
+
+
+#' xgboost modeling, prediction, and comparison with prophet.
+#' @param full_dat a day-level (ds) dataframe with true y values (y)
+#' and marked periods (period %in% c("train", "test"))
+#' @param horizon number of dats after test_start to forecast
+#' @param nlags number of lags to use as features
+#' @return a list of named plots regarding test-set predictions and
+#' model accuracy
+model_predict_compare <- function(full_dat, test_start, horizon, nlags) {
+  trn <- full_dat %>% filter(period == "train")
+  tst <- full_dat %>% filter(period == "test")
+
+  y_trn <- trn %>% arrange(ds) %$% y
+  xg <- train_xg(y_trn, nlags)
+  xg_preds <- walk_prediction(xg, y_trn, horizon, nlags)
+
+  xg_preds_frame <- tibble(ds = generate_test_ds(test_start, horizon),
+                           y = xg_preds, type = XGLABEL)
+  xg_fit_frame <- get_fit(xg, y_trn, nlags)
+
+  ## Single-state prophet model to compare with
+  prophet_preds_frame <- get_prophet_prediction(trn, test_start, horizon)
+
+  ## By-day comparison of the two prediction sets.
+  better_by_day <- get_error_comparison(tst,
+                                        xg_preds_frame,
+                                        prophet_preds_frame)
+
+  .better_by_day_plot <- .plot_better_by_day(better_by_day, nlags)
+  .xg_fit_plot <- .plot_xg_fit(trn, xg_fit_frame)
+  .xg_prophet_comparison_plot <-
+    .plot_xg_prophet_comparison(trn, tst,
+                                xg_preds_frame, prophet_preds_frame,
+                                test_start, horizon)
+
+  list(.better_by_day_plot = .better_by_day_plot,
+       .xg_fit_plot = .xg_fit_plot,
+       .xg_prophet_comparison_plot = .xg_prophet_comparison_plot)
+}
+
+
+test_set_x_scale <- list(scale_x_date(date_breaks = "2 weeks",
+                                      labels = function(d) format(d, "%d %b %Y")))
+
+STATE <- "Arizona"
+PHLABEL <- "prophet"
+XGLABEL <- "xgboost"
+
+#####
+## Prepare single-state dataframe for modeling. ################################
+#####
 one_state_dat <- state_review_values_by_date %>%
   prepare_for_state_modeling() %>%
   filter(state == STATE) %>%
@@ -127,53 +270,6 @@ one_state_dat_complete <- one_state_dat %>%
   mutate(y = ifelse(is.na(y), 0, y)) %>%
   mutate(type = "actual")
 
-one_state_dat_complete %<>% mutate(y = y - lag(y))
-
-trn <- one_state_dat_complete %>% filter(period == "train")
-tst <- one_state_dat_complete %>% filter(period == "test")
-y_trn <- trn %>% arrange(ds) %$% ts(y)
-y_tst <- tst %>% arrange(ds) %$% ts(y)
-
-####
-## Neural net (FF, single hidden layer... poor default performance) ############
-####
-
-model <- nnetar(y_trn)
-
-fit_dat <- tibble(ds = ds_all %>% filter(period == "train") %$% ds,
-                  y = model$fitted,
-                  type = "fitted")
-
-fcast <- forecast(model, h = ds_all %>% filter(period == "test") %>% nrow)
-fcast_dat <- tibble(ds = ds_all %>% filter(period == "test") %$% ds,
-                    y = fcast$mean,
-                    type = "predicted")
-
-prophet_result <- stacked_accuracies %>%
-  filter(state == STATE) %>%
-  ungroup() %>%
-  select(ds, yhat, group) %>%
-  rename(type = group, y = yhat) %>%
-  filter(type == WITH_HOLS_NAME)
-
-fcast_dat %>%
-  bind_rows(fit_dat, one_state_dat_complete, prophet_result) %>%
-  filter(year(ds) >= 2015) %>%
-  ggplot(aes(x = ds, y = y, color = type)) +
-  geom_point(alpha = 0.2) +
-  theme_bw()
-
-######
-## Single-state prophet. #######################################################
-######
-
-PHLABEL <- "Prophet"
-proph <- prophet(trn)
-prophet_preds_frame <-
-  predict(proph, tibble(ds = generate_test_ds(test_start, horizon))) %>%
-  mutate(ds = as.Date(ds), type = PHLABEL) %>%
-  rename(y = yhat) %>%
-  select(ds, y, type)
 
 ######
 ## Forecasting with ensemble model. ############################################
@@ -182,82 +278,19 @@ prophet_preds_frame <-
 horizon <- 365
 NLAGS <- 365 * 2
 
-test_set_x_scale <- list(scale_x_date(date_breaks = "2 weeks",
-                                      labels = function(d) format(d, "%d %b %Y")))
+one_state_dat_unmodified <- one_state_dat_complete
 
-XGLABEL <- "xgboost"
+one_state_dat_stationary <- one_state_dat_complete %>% mutate(y = y - lag(y))
 
-y_trn <- trn %>% arrange(ds) %$% y
-xg <- train_xg(y_trn, NLAGS)
-xg_preds <- walk_prediction(xg, y_trn, horizon, NLAGS)
+.stationary_plot <- one_state_dat_stationary %>%
+  .plot_series() +
+  labs(title = glue("{STATE} reviews-per-day made stationary"),
+       x = "Date",
+       y = DAILY_REVIEWS_YLAB)
 
-xg_preds_frame <- tibble(ds = generate_test_ds(test_start, horizon),
-                         y = xg_preds,
-                         type = XGLABEL)
-
-xg_fit_frame <- get_fit(xg, y_trn, NLAGS)
-
-.xg_fit_plot <- xg_fit_frame %>%
-  mutate(type = XGLABEL) %>%
-  bind_rows(trn) %>%
-  ggplot(aes(x = ds, y = y, color = type)) +
-  geom_point(alpha = 0.3, size = 4) +
-  theme_bw() +
-  scale_x_date(date_breaks = "1 year", labels = function(d) format(d, "%Y")) +
-  theme(legend.title = element_blank(),
-        legend.text = element_text(size = 30),
-        aspect.ratio = 2/5) +
-  labs(x = "Date", y = DAILY_REVIEWS_YLAB)
+.series_plots <- one_state_dat_unmodified %>%
+  model_predict_compare(test_start, horizon, NLAGS)
+.stationary_series_plots <- one_state_dat_stationary %>%
+  model_predict_compare(test_start, horizon, NLAGS)
 
 
-
-.xg_prophet_comparison_plot <- bind_rows(trn,
-                                         tst,
-                                         xg_preds_frame,
-                                         prophet_preds_frame) %>%
-  filter(ds <= test_start + horizon - 1) %>%
-  filter(ds > test_start - 0 * horizon) %>%
-  ggplot(aes(x = ds, y = y, color = type)) +
-  geom_line() +
-  theme_bw() +
-  test_set_x_scale +
-  labs(x = "Date", y = DAILY_REVIEWS_YLAB) +
-  theme(legend.title = element_blank(),
-        aspect.ratio = 2/5)
-
-xg_errors <- get_daily_errors(tst, xg_preds_frame) %>%
-  mutate(type = XGLABEL)
-ph_errors <- get_daily_errors(tst, prophet_preds_frame) %>%
-  mutate(type = PHLABEL)
-
-bind_rows(xg_errors, ph_errors) %>%
-  ggplot(aes(x = ds, y = y_minus_yhat, color = type)) +
-  geom_point() +
-  theme_bw() +
-  geom_hline(yintercept = 0)
-
-better_by_day <-
-  inner_join(xg_errors, ph_errors, by = "ds", suffix = c("_xg", "_ph")) %>%
-  mutate(better = case_when(abs(y_minus_yhat_xg) < abs(y_minus_yhat_ph) ~
-                              as.character("xgboost"),
-                            abs(y_minus_yhat_xg) > abs(y_minus_yhat_ph) ~
-                              PHLABEL,
-                            TRUE ~ "Same"),
-         error_difference = abs(y_minus_yhat_ph) - abs(y_minus_yhat_xg),
-         cumu_error_diff = cumsum(error_difference) / 1:n())
-
-
-.better_by_day_plot <- better_by_day %>%
-  ggplot(aes(x = ds)) +
-  geom_point(aes(y = error_difference, color = better), size = 5, alpha = 0.9) +
-  geom_line(aes(y = cumu_error_diff), size = 1.2) +
-  geom_hline(yintercept = 0, color = "purple") +
-  theme_bw() +
-  labs(x = "Date",
-       y = "Prophet error - xgboost error (in reviews per day)",
-       title = glue("Difference in error by day between xgboost with {NLAGS} lags, and Prophet"),
-       subtitle = glue("Days are colored by which model has the smaller absolute error.
-The black line is the cumulative better-ness of xgboost.")) +
-  theme(legend.title = element_text(size = 30),
-        aspect.ratio = 2/5) +
-  test_set_x_scale

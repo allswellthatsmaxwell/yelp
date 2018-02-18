@@ -1,17 +1,18 @@
 ---
 title: "Stranger Forecasts"
 author: "Maxwell Peterson"
+abstract: We motivate and demonstrate a method we call lagged-feed-xgboost (LFX).
 output: pdf_document
 ---
 
 ```{r include = FALSE, echo = FALSE}
 fmt_text_date <- function(dt) format(dt, "%B %d, %Y")
-knitr::opts_chunk$set(fig.width = 30, fig.height = 18)
+knitr::opts_chunk$set(fig.width = 30, fig.height = 12)
 
 pdf_gg_single_theme <- list(theme(axis.text = element_text(size = 30),
                                   axis.text.x = element_text(angle = 90),
                                   axis.title = element_text(size = 34),
-                                  legend.text = element_text(size = 30),
+                                  legend.text = element_text(size = 27),
 				  plot.title = element_text(size = 40),
                                   plot.subtitle = element_text(size = 34)))
 ```
@@ -41,8 +42,8 @@ horizon of `r horizon` days after `r fmt_text_date(train_end)`.
 ### In-sample fit
 This method has no problem fitting the training data:
 
-```{r echo = FALSE, dpi = 70, fig.height = 12}
-.xg_fit_plot + pdf_gg_single_theme
+```{r echo = FALSE, dpi = 70}
+.series_plots$.xg_fit_plot + pdf_gg_single_theme
 ```
 
 But it isn\'t clear whether this is a good thing.
@@ -54,8 +55,8 @@ But it isn\'t clear whether this is a good thing.
 Using `r NLAGS` lags as features, the following forecast results. The forecast
 from a prophet model trained on the same data is also plotted.
 
-```{r include = TRUE, echo = FALSE, dpi = 70, fig.height = 12}
-.xg_prophet_comparison_plot + pdf_gg_single_theme
+```{r include = TRUE, echo = FALSE, dpi = 70}
+.series_plots$.xg_prophet_comparison_plot + pdf_gg_single_theme
 ```
 
 What interesting behavior! And what differences between the two methods! The
@@ -67,16 +68,56 @@ may be a safer bet; but that for day-to-day variation attempts, this xgboost
 method has much more promise.
 
 #### Comparing errors over time
-Xgboost is the better method for this series for the first 6 months or so, then
+LFX is the better method for this series for the first 6 months or so, then
 Prophet begins to do better:
 
-```{r include = TRUE, echo = FALSE, dpi = 70, fig.height = 12}
-.better_by_day_plot + pdf_gg_single_theme
+```{r include = TRUE, echo = FALSE, dpi = 70}
+.series_plots$.better_by_day_plot + pdf_gg_single_theme
 ```
 
-xgboost does better early on, but fails to increase enough at the beginning of 2017,
-so is overtaken by prophet.
+The reason Prophet overtakes lagged-feed-xgboost is that the latter fails to
+increase enough at the beginning of 2017, so is aiming too low.
 
 ## On the stationary series
 So far, the two methods are mainly doing better as a function on what they
 predicted the level of the series to be. How do they compare on a stationary series?
+Removing the upward trend from the series with single-lag differencing, we
+obtain the following series to model and predict upon:
+
+```{r include = TRUE, echo = FALSE, dpi = 70, message = FALSE, warning = FALSE}
+.stationary_plot + pdf_gg_single_theme
+```
+
+Training the lagged-features xgboost model and prophet model and forecasting
+just as before, we obtain the following forecasts:
+
+```{r include = TRUE, echo = FALSE, dpi = 70}
+.stationary_series_plots$.xg_prophet_comparison_plot + pdf_gg_single_theme
+```
+
+And daily errors:
+
+```{r include = TRUE, echo = FALSE, dpi = 70}
+.stationary_series_plots$.better_by_day_plot + pdf_gg_single_theme
+```
+
+Lagged xgboost outperforms prophet on the stationary series!
+
+#### Implications; Avenues of Future Investigation
+
+* xgboost is a general enough framework that adding external regressors is straightforward
+    For example, if temperature is known to correlate with review counts and
+    temperature forecasts are good enough, temperature (and/or lags of temperature)
+    could easily be included as a reviews-per-day predictor.
+
+* Day-to-day forecasts from LFX could be combined with a separate estimate of longer-term trend
+
+    If LFX turns out to forecast day-to-day variation well but longer-term trend
+    less well (like in this document), LFX predictions could be added to trend
+    estimates (from e.g. exponential smoothing) to create a better forecast.
+
+* Hyper-parameter tuning is reasonably well-developed for xgboost and models like it.
+    e.g. the hyperopt package in Python
+
+* Variable-importance techniques like LIME, and in general many meta-modeling techniques for classifiers, apply.
+

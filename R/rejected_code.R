@@ -83,3 +83,34 @@ multiple_models_frame %>%
   ggplot(aes(x = ds, y = y, color = type)) +
   geom_line() +
   theme_bw()
+
+
+####
+## Neural net (FF, single hidden layer... poor default performance) ############
+####
+library(forecast)
+
+model <- nnetar(y_trn)
+
+fit_dat <- tibble(ds = ds_all %>% filter(period == "train") %$% ds,
+                  y = model$fitted,
+                  type = "fitted")
+
+fcast <- forecast(model, h = ds_all %>% filter(period == "test") %>% nrow)
+fcast_dat <- tibble(ds = ds_all %>% filter(period == "test") %$% ds,
+                    y = fcast$mean,
+                    type = "predicted")
+
+prophet_result <- stacked_accuracies %>%
+  filter(state == STATE) %>%
+  ungroup() %>%
+  select(ds, yhat, group) %>%
+  rename(type = group, y = yhat) %>%
+  filter(type == WITH_HOLS_NAME)
+
+fcast_dat %>%
+  bind_rows(fit_dat, one_state_dat_complete, prophet_result) %>%
+  filter(year(ds) >= 2015) %>%
+  ggplot(aes(x = ds, y = y, color = type)) +
+  geom_point(alpha = 0.2) +
+  theme_bw()
