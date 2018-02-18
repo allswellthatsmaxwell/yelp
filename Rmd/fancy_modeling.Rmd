@@ -10,15 +10,16 @@ knitr::opts_chunk$set(fig.width = 30, fig.height = 18)
 
 pdf_gg_single_theme <- list(theme(axis.text = element_text(size = 30),
                                   axis.text.x = element_text(angle = 90),
-                                  axis.title = element_text(size = 40),
-                                  legend.text = element_text(size = 32),
-				  plot.title = element_text(size = 46),
-                                  plot.subtitle = element_text(size = 40)))
+                                  axis.title = element_text(size = 34),
+                                  legend.text = element_text(size = 30),
+				  plot.title = element_text(size = 40),
+                                  plot.subtitle = element_text(size = 34)))
 ```
 
 This is an experiment with timeseries prediction using the boosting algorithm
 xgboost. We focus on Arizona Yelp reviews-per-day.
 
+### Method
 The idea is to train an xgboost model where the input features to predict
 the value of the timeseries at y[t] are N lags of y up to time t. For example,
 if we used 3 lags, then to predict a future out-of-sample value y[i], we
@@ -32,14 +33,28 @@ and use the predictions as if they were known lags of the series.
 With this scheme, the kth lag of y[k] is the single value predicted
 at step y[k - 1].
 
+### Data
 We train on data from `r fmt_text_date(train_start)` to
 `r fmt_text_date(train_end)`, and forecast over a
 horizon of `r horizon` days after `r fmt_text_date(train_end)`.
 
+### In-sample fit
+This method has no problem fitting the training data:
+
+```{r echo = FALSE, dpi = 70, fig.height = 12}
+.xg_fit_plot + pdf_gg_single_theme
+```
+
+But it isn\'t clear whether this is a good thing.
+
+\pagebreak
+
+### Out-of-sample forecast
+
 Using `r NLAGS` lags as features, the following forecast results. The forecast
 from a prophet model trained on the same data is also plotted.
 
-```{r include = TRUE, echo = FALSE, dpi = 70}
+```{r include = TRUE, echo = FALSE, dpi = 70, fig.height = 12}
 .xg_prophet_comparison_plot + pdf_gg_single_theme
 ```
 
@@ -51,14 +66,17 @@ around day-to-day. The immediate suggestion is that for long horizons, prophet
 may be a safer bet; but that for day-to-day variation attempts, this xgboost
 method has much more promise.
 
-\pagebreak
-
+#### Comparing errors over time
 Xgboost is the better method for this series for the first 6 months or so, then
 Prophet begins to do better:
 
-```{r include = TRUE, echo = FALSE, dpi = 70}
+```{r include = TRUE, echo = FALSE, dpi = 70, fig.height = 12}
 .better_by_day_plot + pdf_gg_single_theme
 ```
 
-This is because xgboost failed to increase enough at the beginning of 2017, and was
-always shooting low.
+xgboost does better early on, but fails to increase enough at the beginning of 2017,
+so is overtaken by prophet.
+
+## On the stationary series
+So far, the two methods are mainly doing better as a function on what they
+predicted the level of the series to be. How do they compare on a stationary series?

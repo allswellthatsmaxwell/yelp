@@ -82,6 +82,19 @@ get_daily_errors <- function(true_dat, pred_dat) {
     mutate(y_minus_yhat = y - yhat)
 }
 
+
+#' get the in-sample fit for y from model
+get_fit <- function(model, y, nlags) {
+  trn_lag_mat <- get_n_lag_matrix(y, nlags)
+  trn_response <- trn_lag_mat[,1]
+  trn_predictors <- trn_lag_mat[,-1]
+  yfit <- predict(model, trn_predictors)
+  tibble(ds = seq.Date(from = train_start + nlags,
+                       to = train_end,
+                       by = 1),
+         y = yfit)
+}
+
 take_last_n <- function(vec, n) vec[(length(vec) - n + 1):length(vec)]
 
 roll_validation <- function(dat, earliest_date, horizon) {
@@ -113,6 +126,8 @@ one_state_dat_complete <- one_state_dat %>%
   ## so assume missing days are zeros.
   mutate(y = ifelse(is.na(y), 0, y)) %>%
   mutate(type = "actual")
+
+one_state_dat_complete %<>% mutate(y = y - lag(y))
 
 trn <- one_state_dat_complete %>% filter(period == "train")
 tst <- one_state_dat_complete %>% filter(period == "test")
@@ -170,8 +185,7 @@ NLAGS <- 365 * 2
 test_set_x_scale <- list(scale_x_date(date_breaks = "2 weeks",
                                       labels = function(d) format(d, "%d %b %Y")))
 
-
-XGLABEL <- glue("xgboost")
+XGLABEL <- "xgboost"
 
 y_trn <- trn %>% arrange(ds) %$% y
 xg <- train_xg(y_trn, NLAGS)
@@ -181,10 +195,26 @@ xg_preds_frame <- tibble(ds = generate_test_ds(test_start, horizon),
                          y = xg_preds,
                          type = XGLABEL)
 
+xg_fit_frame <- get_fit(xg, y_trn, NLAGS)
+
+.xg_fit_plot <- xg_fit_frame %>%
+  mutate(type = XGLABEL) %>%
+  bind_rows(trn) %>%
+  ggplot(aes(x = ds, y = y, color = type)) +
+  geom_point(alpha = 0.3, size = 4) +
+  theme_bw() +
+  scale_x_date(date_breaks = "1 year", labels = function(d) format(d, "%Y")) +
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size = 30),
+        aspect.ratio = 2/5) +
+  labs(x = "Date", y = DAILY_REVIEWS_YLAB)
+
+
+
 .xg_prophet_comparison_plot <- bind_rows(trn,
                                          tst,
                                          xg_preds_frame,
-                                         proph_preds_frame) %>%
+                                         prophet_preds_frame) %>%
   filter(ds <= test_start + horizon - 1) %>%
   filter(ds > test_start - 0 * horizon) %>%
   ggplot(aes(x = ds, y = y, color = type)) +
@@ -192,7 +222,8 @@ xg_preds_frame <- tibble(ds = generate_test_ds(test_start, horizon),
   theme_bw() +
   test_set_x_scale +
   labs(x = "Date", y = DAILY_REVIEWS_YLAB) +
-  theme(legend.title = element_blank())
+  theme(legend.title = element_blank(),
+        aspect.ratio = 2/5)
 
 xg_errors <- get_daily_errors(tst, xg_preds_frame) %>%
   mutate(type = XGLABEL)
@@ -215,9 +246,10 @@ better_by_day <-
          error_difference = abs(y_minus_yhat_ph) - abs(y_minus_yhat_xg),
          cumu_error_diff = cumsum(error_difference) / 1:n())
 
+
 .better_by_day_plot <- better_by_day %>%
   ggplot(aes(x = ds)) +
-  geom_point(aes(y = error_difference, color = better), size = 3) +
+  geom_point(aes(y = error_difference, color = better), size = 5, alpha = 0.9) +
   geom_line(aes(y = cumu_error_diff), size = 1.2) +
   geom_hline(yintercept = 0, color = "purple") +
   theme_bw() +
