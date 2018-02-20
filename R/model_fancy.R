@@ -190,8 +190,8 @@ get_prophet_prediction <- function(trn, test_start, horizon) {
   prophet_preds_frame <-
     predict(proph, tibble(ds = generate_test_ds(test_start, horizon))) %>%
     mutate(ds = as.Date(ds), type = PHLABEL) %>%
-    rename(y = yhat) %>%
-    select(ds, y, type)
+    rename(y = yhat)
+    ##select(ds, y, type)
   prophet_preds_frame
 }
 
@@ -230,9 +230,19 @@ model_predict_compare <- function(full_dat, test_start, horizon, nlags) {
                                 xg_preds_frame, prophet_preds_frame,
                                 test_start, horizon)
 
-  list(.better_by_day_plot = .better_by_day_plot,
+  importance <- xgb.importance(model = xg) %>%
+    mutate(lag_number = as.integer(Feature) + 1L) %>%
+    select(lag_number, Gain) %>%
+    arrange(desc(Gain))
+
+  list(xg_model = xg,
+       xg_preds_frame = xg_preds_frame,
+       xg_fit_frame = xg_fit_frame,
+       better_by_day = better_by_day,
+       .better_by_day_plot = .better_by_day_plot,
        .xg_fit_plot = .xg_fit_plot,
-       .xg_prophet_comparison_plot = .xg_prophet_comparison_plot)
+       .xg_prophet_comparison_plot = .xg_prophet_comparison_plot,
+       importance = importance)
 }
 
 
@@ -275,9 +285,6 @@ one_state_dat_complete <- one_state_dat %>%
 ## Forecasting with ensemble model. ############################################
 ######
 
-horizon <- 365
-NLAGS <- 365 * 2
-
 one_state_dat_unmodified <- one_state_dat_complete
 
 one_state_dat_stationary <- one_state_dat_complete %>% mutate(y = y - lag(y))
@@ -288,9 +295,13 @@ one_state_dat_stationary <- one_state_dat_complete %>% mutate(y = y - lag(y))
        x = "Date",
        y = DAILY_REVIEWS_YLAB)
 
-.series_plots <- one_state_dat_unmodified %>%
+
+horizon <- 365
+NLAGS <- 365 * 3
+
+series_result <- one_state_dat_unmodified %>%
   model_predict_compare(test_start, horizon, NLAGS)
-.stationary_series_plots <- one_state_dat_stationary %>%
+stationary_series_result <- one_state_dat_stationary %>%
   model_predict_compare(test_start, horizon, NLAGS)
 
 

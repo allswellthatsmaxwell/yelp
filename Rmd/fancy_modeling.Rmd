@@ -9,6 +9,8 @@ output: pdf_document
 fmt_text_date <- function(dt) format(dt, "%B %d, %Y")
 knitr::opts_chunk$set(fig.width = 30, fig.height = 12)
 
+
+
 pdf_gg_single_theme <- list(theme(axis.text = element_text(size = 30),
                                   axis.text.x = element_text(angle = 90),
                                   axis.title = element_text(size = 34),
@@ -31,7 +33,7 @@ when forecasting the day k days after the final known date, there are k - 1
 unknown lags of y[k]. Thus we use a one-step-forecast-and-feed procedure:
 starting at the day after the final known day, we predict one value at a time,
 and use the predictions as if they were known lags of the series.
-With this scheme, the kth lag of y[k] is the single value predicted
+With this scheme, the 1st lag of y[k] is the single value predicted
 at step y[k - 1].
 
 ### Data
@@ -43,7 +45,7 @@ horizon of `r horizon` days after `r fmt_text_date(train_end)`.
 This method has no problem fitting the training data:
 
 ```{r echo = FALSE, dpi = 70}
-.series_plots$.xg_fit_plot + pdf_gg_single_theme
+series_result$.xg_fit_plot + pdf_gg_single_theme
 ```
 
 But it isn\'t clear whether this is a good thing.
@@ -56,7 +58,7 @@ Using `r NLAGS` lags as features, the following forecast results. The forecast
 from a prophet model trained on the same data is also plotted.
 
 ```{r include = TRUE, echo = FALSE, dpi = 70}
-.series_plots$.xg_prophet_comparison_plot + pdf_gg_single_theme
+series_result$.xg_prophet_comparison_plot + pdf_gg_single_theme
 ```
 
 What interesting behavior! And what differences between the two methods! The
@@ -72,11 +74,19 @@ LFX is the better method for this series for the first 6 months or so, then
 Prophet begins to do better:
 
 ```{r include = TRUE, echo = FALSE, dpi = 70}
-.series_plots$.better_by_day_plot + pdf_gg_single_theme
+series_result$.better_by_day_plot + pdf_gg_single_theme
 ```
 
 The reason Prophet overtakes lagged-feed-xgboost is that the latter fails to
 increase enough at the beginning of 2017, so is aiming too low.
+
+The global variable importance from the xgboost model is interesting:
+
+```{r include = TRUE, echo = FALSE, results = "asis"}
+series_result$importance %>% head(20) %>%
+  xtable::xtable(align = "llr") %>%
+  print(type = "latex", include.rownames = FALSE, comment = FALSE)
+```
 
 ## On the stationary series
 So far, the two methods are mainly doing better as a function on what they
@@ -92,13 +102,13 @@ Training the lagged-features xgboost model and prophet model and forecasting
 just as before, we obtain the following forecasts:
 
 ```{r include = TRUE, echo = FALSE, dpi = 70}
-.stationary_series_plots$.xg_prophet_comparison_plot + pdf_gg_single_theme
+stationary_series_result$.xg_prophet_comparison_plot + pdf_gg_single_theme
 ```
 
 And daily errors:
 
 ```{r include = TRUE, echo = FALSE, dpi = 70}
-.stationary_series_plots$.better_by_day_plot + pdf_gg_single_theme
+stationary_series_result$.better_by_day_plot + pdf_gg_single_theme
 ```
 
 Lagged xgboost outperforms prophet on the stationary series!
