@@ -1,4 +1,7 @@
 
+library(xgboost)
+library(magrittr)
+
 #' get n lags from point t (n <= t) in y
 #' (i.e. each of y[t-1], y[t-2], ..., y[n+1], y[n])
 get_lags <- function(y, t, n) {
@@ -19,15 +22,29 @@ get_n_lag_matrix <- function(y, n) {
     do.call(rbind, .)
 }
 
+drop_first_n_rows <- function(mat, n) {
+  mat[(n + 1):nrow(mat),]
+}
 
-#' Train and return an xgboost model where the response
-#' variable is y[i] and the input features are n lags of
-#' y. y must already be ordered properly
-train_xg <- function(y, nlags) {
-  trn_lag_mat <- get_n_lag_matrix(y, nlags)
-  trn_response <- trn_lag_mat[,1]
-  trn_predictors <- trn_lag_mat[,-1]
-  xgboost(trn_predictors, trn_response, nrounds = 100)
+make_empty_nrow_matrix <- function(n) matrix(nrow = length(y), ncol = 0)
+
+#' make lag matrix from timeseries, with optional external regressors.
+#' @param timeseries a vector, *already ordered by time (ascending)*
+#' @param nlags number of lags to use as features
+#' @param external_regressors a matrix of other features to cbind onto
+#' the lag features. If null, the returned matrix only has the lag columns.
+#' The returned matrix has length(timeseries) - nlags rows
+#' and nlags + ncol(external_regressors) columns.
+make_autoreg_matrices <- function(timeseries, nlags,
+                                  external_regressors = NULL) {
+  mat <- get_n_lag_matrix(timeseries, nlags)
+  X <- mat[,-1]
+  y <- mat[,1]
+  if (!missing(external_regressors)) {
+    stopifnot(length(timeseries) == nrow(external_regressors))
+    X <- cbind(X, drop_first_n_rows(external_regressors, nlags))
+  }
+  list(X = X, y = y)
 }
 
 #' Predict using lags as predictors. Where known lags don't exist because
@@ -61,9 +78,9 @@ walk_prediction <- function(model, y, horizon, nlags) {
 
 #' generate dates from test_start to horizon days after test_start
 generate_test_ds <- function(test_start, horizon) {
-  seq.Date(from = test_start,
-           to = (test_start + horizon - 1),
-           by = 1)
+  seq(from = test_start,
+      to = (test_start + horizon - 1),
+      by = 1)
 }
 
 #' get daily errors between true and predicted values
@@ -85,9 +102,9 @@ get_fit <- function(model, y, nlags) {
   trn_response <- trn_lag_mat[,1]
   trn_predictors <- trn_lag_mat[,-1]
   yfit <- predict(model, trn_predictors)
-  tibble(ds = seq.Date(from = train_start + nlags,
-                       to = train_end,
-                       by = 1),
+  tibble(ds = seq(from = train_start + nlags,
+                  to = train_end,
+                  by = 1),
          y = yfit)
 }
 
@@ -195,6 +212,21 @@ get_prophet_prediction <- function(trn, test_start, horizon) {
   prophet_preds_frame
 }
 
+#' Do the whole xgboost pipeline (model, predict on in-sample, predict on
+#' out-of-sample horizon)
+do_xg_steps <- function(trn, horizon, nlags, nrounds = 50) {
+  inputs <- make_autoreg_matrices(trn$y, nlags)
+  xg <- with(inputs, xgboost(X, y, nrounds = 50))
+  xg_preds <- walk_prediction(xg, trn$y, horizon, nlags)
+  xg_preds_frame <- tibble(ds = generate_test_ds(test_start, horizon),
+                           y = xg_preds,
+                           type = XGLABEL)
+  xg_fit_frame <- get_fit(xg, trn$y, nlags)
+  list(xg = xg,
+       xg_preds = xg_preds,
+       xg_preds_frame = xg_preds_frame,
+       xg_fit_frame = xg_fit_frame)
+}
 
 #' xgboost modeling, prediction, and comparison with prophet.
 #' @param full_dat a day-level (ds) dataframe with true y values (y)
@@ -208,36 +240,31 @@ model_predict_compare <- function(full_dat, test_start, horizon, nlags) {
   tst <- full_dat %>% filter(period == "test")
 
   y_trn <- trn %>% arrange(ds) %$% y
-  xg <- train_xg(y_trn, nlags)
-  xg_preds <- walk_prediction(xg, y_trn, horizon, nlags)
-
-  xg_preds_frame <- tibble(ds = generate_test_ds(test_start, horizon),
-                           y = xg_preds, type = XGLABEL)
-  xg_fit_frame <- get_fit(xg, y_trn, nlags)
+  xg_list <- do_xg_steps(trn, horizon, nlags)
 
   ## Single-state prophet model to compare with
   prophet_preds_frame <- get_prophet_prediction(trn, test_start, horizon)
 
   ## By-day comparison of the two prediction sets.
   better_by_day <- get_error_comparison(tst,
-                                        xg_preds_frame,
+                                        xg_list$xg_preds_frame,
                                         prophet_preds_frame)
 
   .better_by_day_plot <- .plot_better_by_day(better_by_day, nlags)
-  .xg_fit_plot <- .plot_xg_fit(trn, xg_fit_frame)
+  .xg_fit_plot <- .plot_xg_fit(trn, xg_list$xg_fit_frame)
   .xg_prophet_comparison_plot <-
     .plot_xg_prophet_comparison(trn, tst,
-                                xg_preds_frame, prophet_preds_frame,
+                                xg_list$xg_preds_frame, prophet_preds_frame,
                                 test_start, horizon)
 
-  importance <- xgb.importance(model = xg) %>%
+  importance <- xgb.importance(model = xg_list$xg) %>%
     mutate(lag_number = as.integer(Feature) + 1L) %>%
     select(lag_number, Gain) %>%
     arrange(desc(Gain))
 
-  list(xg_model = xg,
-       xg_preds_frame = xg_preds_frame,
-       xg_fit_frame = xg_fit_frame,
+  list(xg_model = xg_list$xg,
+       xg_preds_frame = xg_list$xg_preds_frame,
+       xg_fit_frame = xg_list$xg_fit_frame,
        better_by_day = better_by_day,
        .better_by_day_plot = .better_by_day_plot,
        .xg_fit_plot = .xg_fit_plot,
@@ -256,6 +283,7 @@ XGLABEL <- "xgboost"
 #####
 ## Prepare single-state dataframe for modeling. ################################
 #####
+
 one_state_dat <- state_review_values_by_date %>%
   prepare_for_state_modeling() %>%
   filter(state == STATE) %>%
@@ -268,7 +296,7 @@ test_start <- train_end + 1
 test_end <- max(one_state_dat$ds)
 
 ds_all <-
-  tibble(ds = seq.Date(from = train_start, to = test_end, by = 1),
+  tibble(ds = seq(from = train_start, to = test_end, by = 1),
          period = case_when(between(ds, train_start, train_end) ~ "train",
                             between(ds, test_start, test_end) ~ "test"))
 
@@ -297,11 +325,21 @@ one_state_dat_stationary <- one_state_dat_complete %>% mutate(y = y - lag(y))
 
 
 horizon <- 365
-NLAGS <- 365 * 3
+NLAGS <- 365
 
 series_result <- one_state_dat_unmodified %>%
   model_predict_compare(test_start, horizon, NLAGS)
 stationary_series_result <- one_state_dat_stationary %>%
   model_predict_compare(test_start, horizon, NLAGS)
 
+## Give this xgboost stuff a real run.
+full_dat <- one_state_dat_unmodified
+trn <- full_dat %>% filter(period == "train")
+tst <- full_dat %>% filter(period == "test")
 
+day_vec <- weekdays(seq(from = train_start,
+                        to = train_end,
+                        by = 1))
+day_mat <- table(1:length(day_vec), day_vec)
+
+xgs <- train_xg(trn$y, NLAGS, day_mat)

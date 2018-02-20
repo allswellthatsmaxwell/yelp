@@ -84,7 +84,7 @@ The global variable importance from the xgboost model is interesting:
 
 ```{r include = TRUE, echo = FALSE, results = "asis"}
 series_result$importance %>% head(20) %>%
-  xtable::xtable(align = "llr") %>%
+  xtable::xtable(align = "llr", digits = c(0,0,4)) %>%
   print(type = "latex", include.rownames = FALSE, comment = FALSE)
 ```
 

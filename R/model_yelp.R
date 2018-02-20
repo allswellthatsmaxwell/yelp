@@ -88,18 +88,11 @@ get_businesses_and_reviews_fpath <- function() {
 #' data sets, and writes out a file to get_businesses_and_reviews_fpath().
 #' @return A tibble with one row per review, with business information attached.
 prepare_businesses_and_reviews <- function() {
-  path <- get_businesses_and_reviews_fpath()
-  if (file.exists(path)) {
-    read_feather(path)
-  } else {
-    businesses <- read_dat("yelp_business.csv")
-    reviews <- read_dat("yelp_review.csv") %>% select(-text)
-    businesses_and_reviews <- businesses %>%
-      select(business_id, name, review_count, state, city) %>%
-      inner_join(reviews, by = "business_id")
-    write_feather(businesses_and_reviews, path)
-    businesses_and_reviews
-  }
+  businesses <- read_dat("yelp_business.csv")
+  reviews <- read_dat("yelp_review.csv") %>% select(-text)
+  businesses %>%
+    select(business_id, name, review_count, state, city) %>%
+    inner_join(reviews, by = "business_id")
 }
 
 
@@ -297,6 +290,21 @@ ratio_diff <- function(y, yhat) (y - yhat) / y
 }
 
 
+library(prophet)
+library(ggplot2)
+library(dplyr)
+library(magrittr)
+library(purrr)
+library(glue)
+library(readr)
+library(lubridate)
+library(tis)
+library(feather)
+library(assertr)
+library(rowr)
+library(purrr)
+library(tidyr)
+
 ## State names for states that make it through the MIN_REVIEWS_IN_YEAR filter.
 ## Where state codes weren't clear, codes were manually converted by
 ## looking at cities in the dataset.
@@ -334,21 +342,6 @@ one_year_settings <-
 additional_states_filter <- . %>% filter(TRUE)
 ## filter(state %in% c("Arizona", "Pennsylvania"))
 
-library(prophet)
-library(ggplot2)
-library(dplyr)
-library(magrittr)
-library(purrr)
-library(glue)
-library(readr)
-library(lubridate)
-library(tis)
-library(feather)
-library(assertr)
-library(rowr)
-library(purrr)
-library(tidyr)
-
 DATA_DIR <- "../data"
 MIN_REVIEWS_IN_YEAR <- 300
 YEAR <- 2017
@@ -360,8 +353,8 @@ DAILY_REVIEWS_YLAB <- "reviews posted on day"
 WO_HOLS_NAME <- "Without holidays"
 WITH_HOLS_NAME <- "With holidays"
 
-businesses_and_reviews <- prepare_businesses_and_reviews() %>%
-  rename(state_code = state)
+businesses_and_reviews %<-% {prepare_businesses_and_reviews() %>%
+  rename(state_code = state)}
 
 min_date <- min(businesses_and_reviews$date)
 max_date <- max(businesses_and_reviews$date)
