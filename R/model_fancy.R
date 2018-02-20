@@ -26,8 +26,6 @@ drop_first_n_rows <- function(mat, n) {
   mat[(n + 1):nrow(mat),]
 }
 
-make_empty_nrow_matrix <- function(n) matrix(nrow = length(y), ncol = 0)
-
 #' make lag matrix from timeseries, with optional external regressors.
 #' @param timeseries a vector, *already ordered by time (ascending)*
 #' @param nlags number of lags to use as features
@@ -58,19 +56,28 @@ make_autoreg_matrices <- function(timeseries, nlags,
 #' @param y the same y used to train the model
 #' @param horizon the number of period to predict
 #' @param nlags the number of lags used to train the model
-walk_prediction <- function(model, y, horizon, nlags) {
+walk_prediction <- function(model, y, horizon, nlags,
+                            external_regressors = NULL) {
   ## The first prediction uses nlag true values from y;
   ## each subsequent prediction step throws one true value out
   ## from early in y and tacks the predicted value onto the
   ## end, and this happens horizon times. so we'll eventually be
   ## using nlags + horizon values from this vector (but only nlags
   ## at a time).
+  using_external <- missing(external_regressors)
+  if (using_external) stopifnot(horizon == nrow(external_regressors))
   short_y <- rep(as.numeric(NA), nlags + horizon)
   short_y[1:nlags] <- take_last_n(y, nlags)
   for (i in 1:horizon) {
     t_i <- nlags + i
-    lags_for_predict <- get_lags(short_y, t_i, nlags)
-    short_y[t_i] <- predict(model, newdata = lags_for_predict)
+    lag_predictors <- get_lags(short_y, t_i, nlags)
+    X <-
+      if (using_external) {
+        cbind(lag_predictors, external_regressors[i, , drop = FALSE])
+      } else {
+        lag_predictors
+      }
+    short_y[t_i] <- predict(model, newdata = X)
   }
   take_last_n(short_y, horizon)
 }
@@ -214,8 +221,10 @@ get_prophet_prediction <- function(trn, test_start, horizon) {
 
 #' Do the whole xgboost pipeline (model, predict on in-sample, predict on
 #' out-of-sample horizon)
-do_xg_steps <- function(trn, horizon, nlags, nrounds = 50) {
-  inputs <- make_autoreg_matrices(trn$y, nlags)
+do_xg_steps <- function(trn, horizon, nlags,
+                        external_regressors = NULL,
+                        nrounds = 50) {
+  inputs <- make_autoreg_matrices(trn$y, nlags, external_regressors)
   xg <- with(inputs, xgboost(X, y, nrounds = 50))
   xg_preds <- walk_prediction(xg, trn$y, horizon, nlags)
   xg_preds_frame <- tibble(ds = generate_test_ds(test_start, horizon),
@@ -270,6 +279,13 @@ model_predict_compare <- function(full_dat, test_start, horizon, nlags) {
        .xg_fit_plot = .xg_fit_plot,
        .xg_prophet_comparison_plot = .xg_prophet_comparison_plot,
        importance = importance)
+}
+
+#' return a matrix M where M[i, j] == 1 if the ith day is day j, else 0,
+#' for dates between start and end (inclusive)
+get_day_mat <- function(start, end) {
+  day_vec <- weekdays(seq.Date(from = start, to = end, by = 1))
+  table(1:length(day_vec), day_vec)
 }
 
 
@@ -337,9 +353,11 @@ full_dat <- one_state_dat_unmodified
 trn <- full_dat %>% filter(period == "train")
 tst <- full_dat %>% filter(period == "test")
 
-day_vec <- weekdays(seq(from = train_start,
-                        to = train_end,
-                        by = 1))
-day_mat <- table(1:length(day_vec), day_vec)
+trn_day_mat <- get_day_mat(train_start, train_end)
 
-xgs <- train_xg(trn$y, NLAGS, day_mat)
+inputs <- make_autoreg_matrices(trn$y, NLAGS, trn_day_mat)
+xg <- with(inputs, xgboost(X, y, nrounds = 50))
+
+tst_day_mat <- get_day_mat(test_start, test_start + horizon)
+preds <- walk_prediction(xg, trn$y, horizon, NLAGS,
+                         external_regressors = tst_day_mat)
