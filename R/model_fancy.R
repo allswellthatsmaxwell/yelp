@@ -104,11 +104,9 @@ get_daily_errors <- function(true_dat, pred_dat) {
 
 
 #' get the in-sample fit for y from model
-get_fit <- function(model, y, nlags) {
-  trn_lag_mat <- get_n_lag_matrix(y, nlags)
-  trn_response <- trn_lag_mat[,1]
-  trn_predictors <- trn_lag_mat[,-1]
-  yfit <- predict(model, trn_predictors)
+get_fit <- function(model, y, nlags, external_regressors = NULL) {
+  X <- make_autoreg_matrices(y, nlags, external_regressors) %$% X
+  yfit <- predict(model, X)
   tibble(ds = seq(from = train_start + nlags,
                   to = train_end,
                   by = 1),
@@ -124,16 +122,17 @@ roll_validation <- function(dat, earliest_date, horizon) {
 
 }
 
-#' plot comparison between xgboost and prophet accuracy
-.plot_xg_prophet_comparison <- function(trn, tst,
-                                        xg_preds_frame,
-                                        prophet_preds_frame,
-                                        test_start,
-                                        horizon) {
+#' plot out-of-sample day-level predictions from
+#' different models (marked by the column "type")
+#' in preds_frame
+.plot_preds_frame <- function(trn,
+                              tst,
+                              preds_frame,
+                              test_start,
+                              horizon) {
   bind_rows(trn,
             tst,
-            xg_preds_frame,
-            prophet_preds_frame) %>%
+            preds_frame) %>%
     filter(ds <= test_start + horizon - 1) %>%
     filter(ds > test_start - 0 * horizon) %>%
     ggplot(aes(x = ds, y = y, color = type)) +
@@ -222,15 +221,16 @@ get_prophet_prediction <- function(trn, test_start, horizon) {
 #' Do the whole xgboost pipeline (model, predict on in-sample, predict on
 #' out-of-sample horizon)
 do_xg_steps <- function(trn, horizon, nlags,
-                        external_regressors = NULL,
+                        trn_external_regressors = NULL,
+                        tst_external_regressors = NULL,
                         nrounds = 50) {
-  inputs <- make_autoreg_matrices(trn$y, nlags, external_regressors)
-  xg <- with(inputs, xgboost(X, y, nrounds = 50))
-  xg_preds <- walk_prediction(xg, trn$y, horizon, nlags)
+  inputs <- make_autoreg_matrices(trn$y, nlags, trn_external_regressors)
+  xg <- with(inputs, xgboost(X, y, nrounds = nrounds))
+  xg_preds <- walk_prediction(xg, trn$y, horizon, nlags, tst_external_regressors)
   xg_preds_frame <- tibble(ds = generate_test_ds(test_start, horizon),
                            y = xg_preds,
                            type = XGLABEL)
-  xg_fit_frame <- get_fit(xg, trn$y, nlags)
+  xg_fit_frame <- get_fit(xg, trn$y, nlags, trn_external_regressors)
   list(xg = xg,
        xg_preds = xg_preds,
        xg_preds_frame = xg_preds_frame,
@@ -262,9 +262,10 @@ model_predict_compare <- function(full_dat, test_start, horizon, nlags) {
   .better_by_day_plot <- .plot_better_by_day(better_by_day, nlags)
   .xg_fit_plot <- .plot_xg_fit(trn, xg_list$xg_fit_frame)
   .xg_prophet_comparison_plot <-
-    .plot_xg_prophet_comparison(trn, tst,
-                                xg_list$xg_preds_frame, prophet_preds_frame,
-                                test_start, horizon)
+    .plot_preds_frame(trn, tst,
+                      bind_rows(xg_list$xg_preds_frame,
+                                prophet_preds_frame),
+                      test_start, horizon)
 
   importance <- xgb.importance(model = xg_list$xg) %>%
     mutate(lag_number = as.integer(Feature) + 1L) %>%
@@ -341,7 +342,7 @@ one_state_dat_stationary <- one_state_dat_complete %>% mutate(y = y - lag(y))
 
 
 horizon <- 365
-NLAGS <- 365
+NLAGS <- 1500
 
 series_result <- one_state_dat_unmodified %>%
   model_predict_compare(test_start, horizon, NLAGS)
@@ -354,10 +355,19 @@ trn <- full_dat %>% filter(period == "train")
 tst <- full_dat %>% filter(period == "test")
 
 trn_day_mat <- get_day_mat(train_start, train_end)
-
-inputs <- make_autoreg_matrices(trn$y, NLAGS, trn_day_mat)
-xg <- with(inputs, xgboost(X, y, nrounds = 50))
-
 tst_day_mat <- get_day_mat(test_start, test_start + horizon)
-preds <- walk_prediction(xg, trn$y, horizon, NLAGS,
-                         external_regressors = tst_day_mat)
+
+hols_frame <- get_holidays(year(train_start):year(test_end)) %>%
+  right_join(ds_all, by = "ds") %>%
+  mutate(holiday = if_else(is.na(holiday), "None", holiday)) %>%
+  filter(between(ds, train_start, test_end))
+
+trn_hols_mat <- hols_frame %>% filter(period == "train") %>%
+  {table(1:length(.$holiday), .$holiday)}
+tst_hols_mat <- hols_frame %>% filter(period == "test") %>%
+  {table(1:length(.$holiday), .$holiday)}
+
+
+xgs <- do_xg_steps(trn, horizon, NLAGS, trn_hols_mat, tst_hols_mat, 50)
+
+.plot_preds_frame(trn, tst, xgs$xg_preds_frame, test_start, horizon)

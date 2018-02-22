@@ -43,7 +43,11 @@ get_holidays <- function(years) {
                      names(one_day_after)),
          ds = c(one_day_before,
                 hol_vec,
-                one_day_after))
+                one_day_after)) %>%
+    group_by(ds) %>%
+    ## MLK and Inauguration can fall on same day; take it just once
+    dplyr::slice(1) %>%
+    ungroup()
 }
 
 #' Construct daily-level fits, and forecast horizon days,
