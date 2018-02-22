@@ -140,8 +140,7 @@ roll_validation <- function(dat, earliest_date, horizon) {
     theme_bw() +
     test_set_x_scale +
     labs(x = "Date", y = DAILY_REVIEWS_YLAB) +
-    theme(legend.title = element_blank(),
-          aspect.ratio = 2/5)
+    theme(legend.title = element_blank())##, aspect.ratio = 2/5)
 }
 
 #' plot in-sample fit
@@ -356,8 +355,8 @@ series_result <- one_state_dat_unmodified %>%
 stationary_series_result <- one_state_dat_stationary %>%
   model_predict_compare(test_start, horizon, NLAGS)
 
-## Give this xgboost stuff a real run.
-full_dat <- states_days_complete## one_state_dat_unmodified
+## Give this xgboost stuff a real run. External regressors.
+full_dat <- states_days_complete
 trn <- full_dat %>% filter(period == "train")
 tst <- full_dat %>% filter(period == "test")
 
@@ -374,16 +373,24 @@ trn_hols_mat <- hols_frame %>% filter(period == "train") %>%
 tst_hols_mat <- hols_frame %>% filter(period == "test") %>%
   {table(1:length(.$holiday), .$holiday)}
 
-STATE <- "Ohio"
-xgs <- do_xg_steps(trn %>% filter(state == STATE),
-                   horizon,
-                   NLAGS,
-                   trn_hols_mat,
-                   tst_hols_mat,
-                   nrounds = 50)
+xg_lists <- trn %>%
+  split(.[["state"]]) %>%
+  lapply(. %>% do_xg_steps(horizon,
+                           NLAGS,
+                           trn_hols_mat,
+                           tst_hols_mat,
+                           nrounds = 50))
 
-.plot_preds_frame(trn %>% filter(state == STATE),
-                  tst %>% filter(state == STATE),
-                  xgs$xg_preds_frame,
+preds_frame <- Map(function(xg_list, state) {
+                     xg_list$xg_preds_frame %>% mutate(state = state)
+                   },
+                   xg_lists, names(xg_lists)) %>%
+  bind_rows()
+
+
+.plot_preds_frame(trn,
+                  tst,
+                  preds_frame,
+                  ## xgs$xg_preds_frame,
                   test_start,
-                  horizon)
+                  horizon) + facet_wrap(~state, scales = "free_y")
