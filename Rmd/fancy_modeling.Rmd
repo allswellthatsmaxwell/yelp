@@ -6,17 +6,10 @@ output: pdf_document
 ---
 
 ```{r include = FALSE, echo = FALSE}
-fmt_text_date <- function(dt) format(dt, "%B %d, %Y")
 knitr::opts_chunk$set(fig.width = 30, fig.height = 12)
 
+source("../Rmd/display_settings.R")
 
-
-pdf_gg_single_theme <- list(theme(axis.text = element_text(size = 30),
-                                  axis.text.x = element_text(angle = 90),
-                                  axis.title = element_text(size = 34),
-                                  legend.text = element_text(size = 27),
-				  plot.title = element_text(size = 40),
-                                  plot.subtitle = element_text(size = 34)))
 ```
 
 This is an experiment with timeseries prediction using the boosting algorithm
@@ -112,6 +105,18 @@ stationary_series_result$.better_by_day_plot + pdf_gg_single_theme
 ```
 
 Lagged xgboost outperforms prophet on the stationary series!
+
+\pagebreak
+
+#### All states
+
+Repeating the same process for every state, and restricting the window to
+`r MID_HORIZON` days (for visibility, though note that predictions do become
+a fair deal worse as we go further beyond this window), we get:
+
+```{r include = TRUE, echo = FALSE, dpi = 70, fig.width = 30, fig.height = 30}
+.all_states_preds_plot + pdf_gg_facet_theme      
+```
 
 #### Implications; Avenues of Future Investigation
 

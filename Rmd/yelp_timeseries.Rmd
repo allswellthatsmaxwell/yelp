@@ -9,14 +9,8 @@ bibliography: yelp.bib
 
 ```{r include = FALSE, echo = FALSE}
 NMIN_TO_COUNT <- 100
-fmt_text_date <- function(dt) format(dt, "%B %d, %Y")
 knitr::opts_chunk$set(fig.width = 30, fig.height = 18)
-pdf_gg_facet_theme <- list(theme(strip.text.x = element_text(size = 30),
-                                 axis.text = element_text(size = 26),
-                                 axis.text.x = element_text(angle = 90),
-                                 axis.title = element_text(size = 34),
-                                 legend.text = element_text(size = 32),
-                                 title = element_text(size = 42)))
+source("../Rmd/display_settings.R")
 ```
 
 The number of reviews posted to Yelp per day is a proxy to

@@ -388,9 +388,11 @@ preds_frame <- Map(function(xg_list, state) {
   bind_rows()
 
 
-.plot_preds_frame(trn,
-                  tst,
-                  preds_frame,
-                  ## xgs$xg_preds_frame,
-                  test_start,
-                  horizon) + facet_wrap(~state, scales = "free_y")
+.all_states_preds_plot <-
+  .plot_preds_frame(trn,
+    tst,
+    preds_frame,
+    ## xgs$xg_preds_frame,
+    test_start,
+    horizon = 200) +
+  facet_wrap(~state, scales = "free_y", ncol = 2)
