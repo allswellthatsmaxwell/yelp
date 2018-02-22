@@ -289,6 +289,12 @@ get_day_mat <- function(start, end) {
   table(1:length(day_vec), day_vec)
 }
 
+cross_join <- function(d1, d2) {
+  inner_join(d1 %>% mutate(abcdefg = TRUE),
+             d2 %>% mutate(abcdefg = TRUE),
+             by = "abcdefg") %>%
+    select(-abcdefg)
+}
 
 test_set_x_scale <- list(scale_x_date(date_breaks = "2 weeks",
                                       labels = function(d) format(d, "%d %b %Y")))
@@ -301,12 +307,6 @@ XGLABEL <- "xgboost"
 ## Prepare single-state dataframe for modeling. ################################
 #####
 
-one_state_dat <- state_review_values_by_date %>%
-  prepare_for_state_modeling() %>%
-  filter(state == STATE) %>%
-  ungroup() %>%
-  select(-state)
-
 train_start <- min(one_state_dat$ds)
 train_end <- as.Date("2016-06-30")
 test_start <- train_end + 1
@@ -316,14 +316,21 @@ ds_all <-
   tibble(ds = seq(from = train_start, to = test_end, by = 1),
          period = case_when(between(ds, train_start, train_end) ~ "train",
                             between(ds, test_start, test_end) ~ "test"))
+states_all <- tibble(state = unique(state_review_values_by_date$state))
+ds_states_all <- cross_join(ds_all, states_all)
 
-one_state_dat_complete <- one_state_dat %>%
-  right_join(ds_all, by = "ds") %>%
+
+states_days_complete <- state_review_values_by_date %>%
+  prepare_for_state_modeling() %>%
+  right_join(ds_states_all, by = c("state", "ds")) %>%
   ## The missing dates are all early and in the time of low activity,
   ## and it seems like Yelp has provided all non-zero days,
   ## so assume missing days are zeros.
   mutate(y = ifelse(is.na(y), 0, y)) %>%
   mutate(type = "actual")
+
+one_state_dat_complete <- states_days_complete %>% filter(state == STATE)
+
 
 
 ######
@@ -342,7 +349,7 @@ one_state_dat_stationary <- one_state_dat_complete %>% mutate(y = y - lag(y))
 
 
 horizon <- 365
-NLAGS <- 2000
+NLAGS <- 1000
 
 series_result <- one_state_dat_unmodified %>%
   model_predict_compare(test_start, horizon, NLAGS)
@@ -350,7 +357,7 @@ stationary_series_result <- one_state_dat_stationary %>%
   model_predict_compare(test_start, horizon, NLAGS)
 
 ## Give this xgboost stuff a real run.
-full_dat <- one_state_dat_unmodified
+full_dat <- states_days_complete## one_state_dat_unmodified
 trn <- full_dat %>% filter(period == "train")
 tst <- full_dat %>% filter(period == "test")
 
@@ -367,7 +374,16 @@ trn_hols_mat <- hols_frame %>% filter(period == "train") %>%
 tst_hols_mat <- hols_frame %>% filter(period == "test") %>%
   {table(1:length(.$holiday), .$holiday)}
 
+STATE <- "Ohio"
+xgs <- do_xg_steps(trn %>% filter(state == STATE),
+                   horizon,
+                   NLAGS,
+                   trn_hols_mat,
+                   tst_hols_mat,
+                   nrounds = 50)
 
-xgs <- do_xg_steps(trn, horizon, NLAGS, trn_hols_mat, tst_hols_mat, 50)
-
-.plot_preds_frame(trn, tst, xgs$xg_preds_frame, test_start, horizon)
+.plot_preds_frame(trn %>% filter(state == STATE),
+                  tst %>% filter(state == STATE),
+                  xgs$xg_preds_frame,
+                  test_start,
+                  horizon)
