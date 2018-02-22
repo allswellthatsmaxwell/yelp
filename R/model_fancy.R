@@ -342,7 +342,7 @@ one_state_dat_stationary <- one_state_dat_complete %>% mutate(y = y - lag(y))
 
 
 horizon <- 365
-NLAGS <- 1500
+NLAGS <- 2000
 
 series_result <- one_state_dat_unmodified %>%
   model_predict_compare(test_start, horizon, NLAGS)
