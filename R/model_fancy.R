@@ -373,26 +373,36 @@ trn_hols_mat <- hols_frame %>% filter(period == "train") %>%
 tst_hols_mat <- hols_frame %>% filter(period == "test") %>%
   {table(1:length(.$holiday), .$holiday)}
 
-xg_lists <- trn %>%
-  split(.[["state"]]) %>%
+trns <- trn %>% split(.[["state"]])
+xg_lists <- trns %>%
   lapply(. %>% do_xg_steps(horizon,
                            NLAGS,
                            trn_hols_mat,
                            tst_hols_mat,
                            nrounds = 50))
 
-preds_frame <- Map(function(xg_list, state) {
-                     xg_list$xg_preds_frame %>% mutate(state = state)
-                   },
-                   xg_lists, names(xg_lists)) %>%
+xgs_preds_frame <- Map(function(xg_list, state) {
+                         xg_list$xg_preds_frame %>% mutate(state = state)
+                       },
+                       xg_lists, names(xg_lists)) %>%
   bind_rows()
 
+pr_lists <- trns %>%
+  lapply(function(trn) get_prophet_prediction(trn, test_start, horizon))
 
+prs_preds_frame <- Map(function(dat, state) dat %>% mutate(state = state),
+                       pr_lists,
+                       names(pr_lists)) %>%
+  bind_rows()
+
+xgs_prs_preds <- bind_rows(xgs_preds_frame, prs_preds_frame)
+
+MID_HORIZON <- 200
 .all_states_preds_plot <-
   .plot_preds_frame(trn,
-    tst,
-    preds_frame,
-    ## xgs$xg_preds_frame,
-    test_start,
-    horizon = 200) +
-  facet_wrap(~state, scales = "free_y", ncol = 2)
+                    tst,
+                    xgs_prs_preds,
+                    ## xgs$xg_preds_frame,
+                    test_start,
+                    horizon = MID_HORIZON) +
+  facet_wrap(~state, scales = "free_y", ncol = 3)
