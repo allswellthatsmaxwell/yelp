@@ -217,6 +217,14 @@ get_prophet_prediction <- function(trn, test_start, horizon) {
   prophet_preds_frame
 }
 
+
+get_seasonal_naive <- function(trn, test_start, horizon, season_len = 365) {
+  stopifnot(horizon <= season_len)
+  ds <- generate_test_ds(test_start, horizon)
+  pred <- take_last_n(trn$y, season_len)[1:horizon]
+  tibble(y = pred, type = glue("seasonal ({season_len}) naive"), ds = ds)
+}
+
 #' do default auto.arima fit without external regressors
 do_arima <- function(trn, test_start, horizon) {
   model <- forecast::auto.arima(trn$y)
@@ -304,6 +312,15 @@ cross_join <- function(d1, d2) {
     select(-abcdefg)
 }
 
+#' for each dataframe in list_of_df, add the column "state", holding
+#' the corresponding name (i.e. names(list_of_df)[[i]] for list_of_df[[i]]).
+#' Then rowbinds all these together.
+add_state_combine <- function(list_of_df) {
+  Map(function(dat, state) mutate(dat, state = state),
+      list_of_df, names(list_of_df)) %>%
+  bind_rows()
+}
+
 test_set_x_scale <- list(scale_x_date(date_breaks = "2 weeks",
                                       labels = function(d) format(d, "%d %b %Y")))
 
@@ -315,10 +332,10 @@ XGLABEL <- "xgboost"
 ## Prepare single-state dataframe for modeling. ################################
 #####
 
-train_start <- min(one_state_dat$ds)
+train_start <- min(model_input$ds)
 train_end <- as.Date("2016-06-30")
 test_start <- train_end + 1
-test_end <- max(one_state_dat$ds)
+test_end <- max(model_input$ds)
 
 ds_all <-
   tibble(ds = seq(from = train_start, to = test_end, by = 1),
@@ -364,7 +381,8 @@ series_result <- one_state_dat_unmodified %>%
 stationary_series_result <- one_state_dat_stationary %>%
   model_predict_compare(test_start, horizon, NLAGS)
 
-## Give this xgboost stuff a real run. External regressors.
+## Give this xgboost stuff a real run. Various external regressors,
+## comparisons to various other techniques, for all 12 states.
 full_dat <- states_days_complete
 trn <- full_dat %>% filter(period == "train")
 tst <- full_dat %>% filter(period == "test")
@@ -383,43 +401,27 @@ tst_hols_mat <- hols_frame %>% filter(period == "test") %>%
   {table(1:length(.$holiday), .$holiday)}
 
 trns <- trn %>% split(.[["state"]])
+
 xg_lists <- trns %>%
   lapply(. %>% do_xg_steps(horizon,
                            NLAGS,
                            trn_hols_mat,
                            tst_hols_mat,
                            nrounds = 50))
+pr_lists <- trns %>% lapply(. %>% get_prophet_prediction(test_start, horizon))
+sn_lists <- trns %>% lapply(. %>% get_seasonal_naive(test_start, horizon))
 
+xgs_preds_frame <- xg_lists %>% lapply(. %$% xg_preds_frame) %>% add_state_combine()
+prs_preds_frame <- pr_lists %>% add_state_combine()
+sns_preds_frame <- sn_lists %>% add_state_combine()
 
-ar_lists <- trns %>% lapply(function(trn) do_arima(trn, test_start, horizon))
-ar_preds_frame <- Map(function(ar_list, state) {
-                         ar_list$preds_frame %>% mutate(state = state)
-                       },
-                       ar_lists, names(ar_lists)) %>%
-  bind_rows()
-
-xgs_preds_frame <- Map(function(xg_list, state) {
-                         xg_list$xg_preds_frame %>% mutate(state = state)
-                       },
-                       xg_lists, names(xg_lists)) %>%
-  bind_rows()
-
-pr_lists <- trns %>%
-  lapply(function(trn) get_prophet_prediction(trn, test_start, horizon))
-
-prs_preds_frame <- Map(function(dat, state) dat %>% mutate(state = state),
-                       pr_lists,
-                       names(pr_lists)) %>%
-  bind_rows()
-
-all_preds <- bind_rows(xgs_preds_frame, prs_preds_frame, ar_preds_frame)
+all_preds <- bind_rows(xgs_preds_frame, prs_preds_frame, sns_preds_frame)
 
 MID_HORIZON <- 200
 .all_states_preds_plot <-
   .plot_preds_frame(trn,
                     tst,
                     all_preds,
-                    ## xgs$xg_preds_frame,
                     test_start,
                     horizon = MID_HORIZON) +
   facet_wrap(~state, scales = "free_y", ncol = 3)
