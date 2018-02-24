@@ -217,6 +217,15 @@ get_prophet_prediction <- function(trn, test_start, horizon) {
   prophet_preds_frame
 }
 
+#' do default auto.arima fit without external regressors
+do_arima <- function(trn, test_start, horizon) {
+  model <- forecast::auto.arima(trn$y)
+  fcast <- forecast::forecast(model, h = horizon)
+  preds_frame <- tibble(y = fcast$mean, type = "arima",
+                        ds = generate_test_ds(test_start, horizon))
+  list(model = model, forecast_obj = fcast, preds_frame = preds_frame)
+}
+
 #' Do the whole xgboost pipeline (model, predict on in-sample, predict on
 #' out-of-sample horizon)
 do_xg_steps <- function(trn, horizon, nlags,
@@ -381,6 +390,14 @@ xg_lists <- trns %>%
                            tst_hols_mat,
                            nrounds = 50))
 
+
+ar_lists <- trns %>% lapply(function(trn) do_arima(trn, test_start, horizon))
+ar_preds_frame <- Map(function(ar_list, state) {
+                         ar_list$preds_frame %>% mutate(state = state)
+                       },
+                       ar_lists, names(ar_lists)) %>%
+  bind_rows()
+
 xgs_preds_frame <- Map(function(xg_list, state) {
                          xg_list$xg_preds_frame %>% mutate(state = state)
                        },
@@ -395,13 +412,13 @@ prs_preds_frame <- Map(function(dat, state) dat %>% mutate(state = state),
                        names(pr_lists)) %>%
   bind_rows()
 
-xgs_prs_preds <- bind_rows(xgs_preds_frame, prs_preds_frame)
+all_preds <- bind_rows(xgs_preds_frame, prs_preds_frame, ar_preds_frame)
 
 MID_HORIZON <- 200
 .all_states_preds_plot <-
   .plot_preds_frame(trn,
                     tst,
-                    xgs_prs_preds,
+                    all_preds,
                     ## xgs$xg_preds_frame,
                     test_start,
                     horizon = MID_HORIZON) +
