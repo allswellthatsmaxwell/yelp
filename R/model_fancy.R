@@ -345,6 +345,12 @@ add_state_combine <- function(list_of_df) {
 test_set_x_scale <- list(scale_x_date(date_breaks = "2 weeks",
                                       labels = function(d) format(d, "%d %b %Y")))
 
+corr_plot_elements <- list(geom_point(),
+                           theme_bw(),
+                           facet_wrap(~state, scales = "free"),
+                           geom_vline(xintercept = 0, color = "purple"),
+                           geom_hline(yintercept = 0, color = "purple"))
+
 STATE <- "Arizona"
 PHLABEL <- "prophet"
 XGLABEL <- "xgboost"
@@ -437,8 +443,11 @@ prs_preds_frame <- pr_lists %>% add_state_combine()
 sns_preds_frame <- sn_lists %>% add_state_combine()
 
 xg_sn_comparison <- get_error_comparison(tst, xgs_preds_frame, sns_preds_frame)
+xg_pr_comparison <- get_error_comparison(tst, xgs_preds_frame, prs_preds_frame)
 
-.plot_better_by_day(xg_sn_comparison, 1) + facet_wrap(~state, scales = "free_y")
+
+.plot_better_by_day(xg_sn_comparison, pt_size = 1) +
+  facet_wrap(~state, scales = "free_y")
 
 all_preds <- bind_rows(xgs_preds_frame, prs_preds_frame, sns_preds_frame)
 
@@ -450,3 +459,17 @@ MID_HORIZON <- 200
                     test_start,
                     horizon = MID_HORIZON) +
   facet_wrap(~state, scales = "free_y", ncol = 3)
+
+## xgboost and prophet errors are quite correlated
+.xg_pr_error_corr_plot <- xg_pr_comparison %>%
+  ggplot(aes(x = y_minus_yhat_xgboost,
+             y = y_minus_yhat_prophet)) +
+  corr_plot_elements
+
+## xgboost and seasonal-naive errors are not terribly correlated,
+## but also not uncorrelated enough to feel good at a glance.
+## Let's see what averaging them gets us, though.
+.xg_sn_error_corr_plot <- xg_sn_comparison %>%
+  ggplot(aes(x = y_minus_yhat_xgboost,
+             y = y_minus_yhat_seasonal_naive_365)) +
+  corr_plot_elements
