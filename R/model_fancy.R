@@ -90,18 +90,6 @@ generate_test_ds <- function(test_start, horizon) {
       by = 1)
 }
 
-#' get daily errors between true and predicted values
-#' @param true_dat, pred_dat dataframes with the columns ds and y
-#' @return a dataframe with one record per day and
-#' the columns ds and y_minus_yhat
-get_daily_errors <- function(true_dat, pred_dat) {
-  inner_join(select(true_dat, ds, y),
-             select(pred_dat, ds, y),
-             by = "ds",
-             suffix = c("", "hat")) %>%
-    mutate(y_minus_yhat = y - yhat)
-}
-
 
 #' get the in-sample fit for y from model
 get_fit <- function(model, y, nlags, external_regressors = NULL) {
@@ -158,40 +146,72 @@ roll_validation <- function(dat, earliest_date, horizon) {
     labs(x = "Date", y = DAILY_REVIEWS_YLAB)
 }
 
+#' get daily errors between true and predicted values
+#' @param true_dat, pred_dat dataframes with the columns ds and y
+#' @return a dataframe with one record per day and
+#' the columns ds and y_minus_yhat
+get_daily_errors <- function(true_dat, pred_dat) {
+  inner_join(select(true_dat, state, ds, y),
+             select(pred_dat, state, ds, y),
+             by = c("ds", "state"),
+             suffix = c("", "hat")) %>%
+    mutate(y_minus_yhat = y - yhat)
+}
+
+#' returns the only unique element in vec, or throws an error
+#' if vec contains multiple unique values
+only <- function(vec) {
+  el <- unique(vec)
+  stopifnot(length(el) == 1)
+  el
+}
+
+p_ <- function(s) paste0("_", s)
+
 #' get day level comparisons between methods from two test set prediction
 #' frames and mark by day which did better and by how much
-get_error_comparison <- function(tst, xg_preds_frame, prophet_preds_frame) {
-  xg_errors <- get_daily_errors(tst, xg_preds_frame) %>%
-    mutate(type = XGLABEL)
-  ph_errors <- get_daily_errors(tst, prophet_preds_frame) %>%
-    mutate(type = PHLABEL)
+#' @param preds_frame_1, preds_frame_2 dataframe with the columns ds, y,
+#' and type
+get_error_comparison <- function(tst, preds_frame_1, preds_frame_2) {
+  e1 <- get_daily_errors(tst, preds_frame_1)
+  e2 <- get_daily_errors(tst, preds_frame_2)
+  type1 <- only(preds_frame_1$type)
+  type2 <- only(preds_frame_2$type)
+  suffix1 <- p_(type1)
+  suffix2 <- p_(type2)
+  name1 <- paste0("y_minus_yhat", suffix1)
+  name2 <- paste0("y_minus_yhat", suffix2)
 
-  inner_join(xg_errors, ph_errors, by = "ds", suffix = c("_xg", "_ph")) %>%
-    mutate(better = case_when(abs(y_minus_yhat_xg) < abs(y_minus_yhat_ph) ~
-                                XGLABEL,
-                              abs(y_minus_yhat_xg) > abs(y_minus_yhat_ph) ~
-                                PHLABEL,
-                              TRUE ~ "Same"),
-           error_difference = abs(y_minus_yhat_ph) - abs(y_minus_yhat_xg),
-           cumu_error_diff = cumsum(error_difference) / 1:n())
+  compare_frame <- inner_join(e1, e2,
+                              by = c("ds", "state"),
+                              suffix = c(suffix1, suffix2)) %>%
+    mutate(type1 = type1, type2 = type2)
+  wrapr::let(list(E1 = name1, E2 = name2),
+             compare_frame %>%
+               mutate(better = case_when(abs(E1) < abs(E2) ~ type1,
+                                         abs(E1) > abs(E2) ~ type2,
+                                         TRUE ~ "Same"),
+                      error_difference = abs(E1) - abs(E2),
+                      cumu_error_diff = cumsum(error_difference) / 1:n()))
 }
 
 #' plot daily which method is better from a day-level dataframe of
 #' error comparisons
-.plot_better_by_day <- function(better_by_day_frame, nlags) {
+.plot_better_by_day <- function(better_by_day_frame, pt_size = 5) {
+  t1 <- only(better_by_day_frame$type1)
+  t2 <- only(better_by_day_frame$type2)
   better_by_day_frame %>%
     ggplot(aes(x = ds)) +
-    geom_point(aes(y = error_difference, color = better), size = 5, alpha = 0.9) +
+    geom_point(aes(y = error_difference, color = better), size = pt_size, alpha = 0.9) +
     geom_line(aes(y = cumu_error_diff), size = 1.2) +
     geom_hline(yintercept = 0, color = "purple") +
     theme_bw() +
     labs(x = "Date",
-         y = "Prophet error - xgboost error (in reviews per day)",
-         title = glue("Difference in error by day between xgboost with {nlags} lags, and Prophet"),
+         y = "{t2} error - {t1} error",
+         title = glue("Difference in error by day between {t1} and {t2}."),
          subtitle = glue("Days are colored by which model has the smaller absolute error.
-The black line is the cumulative better-ness of xgboost.")) +
-  theme(legend.title = element_text(size = 30),
-        aspect.ratio = 2/5) +
+The black line is the cumulative better-ness of {t1}.")) +
+  theme(legend.title = element_text(size = 30)) +
   test_set_x_scale
 }
 
@@ -222,7 +242,7 @@ get_seasonal_naive <- function(trn, test_start, horizon, season_len = 365) {
   stopifnot(horizon <= season_len)
   ds <- generate_test_ds(test_start, horizon)
   pred <- take_last_n(trn$y, season_len)[1:horizon]
-  tibble(y = pred, type = glue("seasonal ({season_len}) naive"), ds = ds)
+  tibble(y = pred, type = glue("seasonal_naive_{season_len}"), ds = ds)
 }
 
 #' do default auto.arima fit without external regressors
@@ -275,7 +295,8 @@ model_predict_compare <- function(full_dat, test_start, horizon, nlags) {
                                         xg_list$xg_preds_frame,
                                         prophet_preds_frame)
 
-  .better_by_day_plot <- .plot_better_by_day(better_by_day, nlags)
+  .better_by_day_plot <- .plot_better_by_day(better_by_day, pt_size = 5) +
+    theme(aspect.ratio = 2/5)
   .xg_fit_plot <- .plot_xg_fit(trn, xg_list$xg_fit_frame)
   .xg_prophet_comparison_plot <-
     .plot_preds_frame(trn, tst,
@@ -414,6 +435,10 @@ sn_lists <- trns %>% lapply(. %>% get_seasonal_naive(test_start, horizon))
 xgs_preds_frame <- xg_lists %>% lapply(. %$% xg_preds_frame) %>% add_state_combine()
 prs_preds_frame <- pr_lists %>% add_state_combine()
 sns_preds_frame <- sn_lists %>% add_state_combine()
+
+xg_sn_comparison <- get_error_comparison(tst, xgs_preds_frame, sns_preds_frame)
+
+.plot_better_by_day(xg_sn_comparison, 1) + facet_wrap(~state, scales = "free_y")
 
 all_preds <- bind_rows(xgs_preds_frame, prs_preds_frame, sns_preds_frame)
 
