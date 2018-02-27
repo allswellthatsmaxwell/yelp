@@ -19,3 +19,5 @@ Ah! But they're not carried on into the out-of-sample fit. I must need to add th
 the future dataframe. Do that next.
 
 * Can we predict how many cool/useful/funny ratings a review will get (or whether it will get any?)
+* Can we classify reviews as being about service, food quality, or both?
+Then I can test my pet theory about how people usually rate both poorly.

@@ -346,7 +346,7 @@ one_year_settings <-
 additional_states_filter <- . %>% filter(TRUE)
 ## filter(state %in% c("Arizona", "Pennsylvania"))
 
-DATA_DIR <- "../data"
+DATA_DIR <- "../../data"
 MIN_REVIEWS_IN_YEAR <- 300
 YEAR <- 2017
 DAYS_IN_YEAR <- 365

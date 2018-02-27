@@ -1,5 +1,6 @@
 fmt_text_date <- function(dt) format(dt, "%B %d, %Y")
 
+
 pdf_gg_facet_theme <- list(theme(strip.text.x = element_text(size = 30),
                                  axis.text = element_text(size = 26),
                                  axis.text.x = element_text(angle = 90),
