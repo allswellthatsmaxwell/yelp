@@ -1,11 +1,6 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Feb 27 23:45:19 2018
 
-@author: mson
-"""
-
+## Code taken from the first course in Coursera's Deep Learning 
+## specialization. None of the code in this file belongs to me.
 
 def linear_forward_test_case():
     np.random.seed(1)
