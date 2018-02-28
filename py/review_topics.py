@@ -1,5 +1,6 @@
 
 import csv, string, re, math, numpy as np
+import ffnn
 
 def get_words(text):
     """Removes all punctuation from text, and collapses all whitespace
@@ -48,3 +49,4 @@ word_vecs = [WordVec(word_list) for word_list in word_lists]
 ## row per feature. Features are counts of how many times each word
 ## appears.
 word_mat = np.array([wv.word_vec for wv in word_vecs]).T
+
