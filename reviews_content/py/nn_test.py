@@ -58,3 +58,7 @@ print ("W1 = "+ str(parameters["W1"]))
 print ("b1 = "+ str(parameters["b1"]))
 print ("W2 = "+ str(parameters["W2"]))
 print ("b2 = "+ str(parameters["b2"]))
+
+
+### CONSTANTS ###
+layers_dims = [12288, 20, 7, 5, 1] #  4-layer model
