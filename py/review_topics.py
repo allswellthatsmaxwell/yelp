@@ -50,3 +50,5 @@ word_vecs = [WordVec(word_list) for word_list in word_lists]
 ## appears.
 word_mat = np.array([wv.word_vec for wv in word_vecs]).T
 
+layer_dims = [word_mat.shape[0], 20, 7, 5, 1]
+activations = [ffnn.relu, ffnn.relu, ffnn.relu, ffnn.relu, ffnn.sigmoid]
