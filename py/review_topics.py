@@ -34,6 +34,28 @@ class WordVec:
     def set_word_universe(cls, word_list):
         cls.words_ix = dict(zip(word_list, range(len(word_list))))
 
+class Layer:
+    def __init__(self, name, W, b, activation):
+        """ name: the name of this node """
+        self.name = name
+        self.W = W
+        self.b = b
+    
+    def shape(self):
+        return W.shape
+    
+    def propagate_forward_from(layer):
+        """
+        Performs forward propagation through this layer. 
+        If this is layer n, then the layer argument is layer n - 1.
+        """
+        
+    def propagate_backward_from(layer):
+        """
+        Performs back propagation through this layer. 
+        If this is layer n, then the layer argument is layer n + 1.
+        """
+
 
 DATA_DIR = "../../data"
 PUNCT_REMOVES = str.maketrans('', '', string.punctuation)
@@ -49,6 +71,8 @@ word_vecs = [WordVec(word_list) for word_list in word_lists]
 ## row per feature. Features are counts of how many times each word
 ## appears.
 word_mat = np.array([wv.word_vec for wv in word_vecs]).T
+
+layer_map = [{}]
 
 layer_dims = [word_mat.shape[0], 20, 7, 5, 1]
 activations = [ffnn.relu, ffnn.relu, ffnn.relu, ffnn.relu, ffnn.sigmoid]
