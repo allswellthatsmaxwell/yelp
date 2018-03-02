@@ -7,9 +7,7 @@ Created on Wed Feb 28 23:42:03 2018
 """
 
 class Layer:
-    
-    backward_map = {__relu: __relu_backward, 
-                    __sigmoid: __sigmoid_backward}
+    import activations as actv
     
     def __init__(self, name, W, b, activation, lprev = None, lnext = None):
         """ W: a m-by-n matrix
@@ -27,54 +25,31 @@ class Layer:
         self.A = None
         self.Z = None
     
-    def __sigmoid(Z):
-        A = 1 / (1 + np.exp(-Z))
-        return A
+    def __assert_ok_topology(self, lprev):
+        self.shape[1] == lprev.shape[0]
+        self.W.shape[0] == b.shape[0]
+        self.b.shape[1] == 1
 
-    def __relu(Z):
-        A = np.maximum(0, Z)
-        return A
-    
-    def __relu_backward(dA):
-        """
-        Perform backward propagation for a single RELU unit.    
-        Arguments: dA -- post-activation gradient, of any shape
-        Returns: dZ -- Gradient of the cost with respect to Z
-        """
-        dZ = np.array(dA, copy=True) # just converting dz to a correct object.
-        assert (dZ.shape == self.Z.shape)
-        # When z <= 0, you should set dz to 0 as well. 
-        dZ[self.Z <= 0] = 0
-        return dZ
-
-    def __sigmoid_backward(dA):
-        """
-        Perform backward propagation for a single SIGMOID unit.
-        Arguments: dA -- post-activation gradient, of any shape
-        Returns: dZ -- Gradient of the cost with respect to Z
-        """
-        s = 1 / (1 + np.exp(-self.Z))
-        dZ = dA * s * (1 - s)    
-        assert (dZ.shape == self.Z.shape)    
-        return dZ
-
-    def __get_backward_activation(activation):
-        backward_map[activation]
-        
     def shape(self): return W.shape
+    def n_features(self): return self.shape[0]
     
     def propagate_forward_from(layer):
         """
         Performs forward propagation through this layer. 
         If this is layer n, then the layer argument is layer n - 1.
         """
-        self.A = np.dot(self.W, layer.A) + self.b
+        self.Z = np.dot(self.W, layer.A) + self.b
         
-    def propagate_backward_from(layer):
+    def propagate_backward_to(layer):
         """
         Performs back propagation through this layer. 
         If this is layer n, then the layer argument is layer n + 1.
         """
+        m = layer.A.shape[1]
+        dZ = actv.derivative(self.activation)(lnext.dA)
+        dW = (1 / m) * np.dot(dZ, layer.A.T)
+        db = (1 / m) * np.sum(dZ, axis = 1, keepdims = True)
+        dA_prev = np.dot(W.T, dZ)
         
     def update_parameters(self, learning_rate):
     
