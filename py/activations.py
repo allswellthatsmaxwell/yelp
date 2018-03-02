@@ -8,6 +8,8 @@ Created on Thu Mar  1 20:23:11 2018
 Activation functions and their backward-propogation companions.
 """
 
+import numpy as np
+
 def sigmoid(Z):
     return 1 / (1 + np.exp(-Z))
 
@@ -40,4 +42,4 @@ def sigmoid_prime(dA, Z):
 backward_map = {relu: relu_prime, sigmoid: sigmoid_prime}
 
 def derivative(activation):
-    backward_map[activation]        
+    backward_map[activation]
