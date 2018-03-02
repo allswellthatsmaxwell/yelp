@@ -2,6 +2,8 @@
 ## Code taken from the first course in Coursera's Deep Learning 
 ## specialization. None of the code in this file belongs to me.
 
+import numpy as np
+import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 
