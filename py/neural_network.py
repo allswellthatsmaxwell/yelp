@@ -8,20 +8,20 @@ Created on Wed Feb 28 23:42:03 2018
 
 class Layer:
     import activations as actv
-    
-    ## should probably replace W and b with shape, and have init make them itself!
-    def __init__(self, name, W, b, activation):
-        """ W: a m-by-n matrix
-            b: an m-row column vector 
-            activation: the activation function for this node
-            name: the name of this node 
-        """
-        assert(W.shape[0] == b.shape[0])
-        assert(b.shape[1] == 1)
+    import initializations
+    import numpy as np
 
-        self.name = name
-        self.W = W
-        self.b = b
+    def __init__(self, name, n, n_prev, activation, 
+                 initialization = initializations.random):
+        """ n: integer; the dimension of this layer
+            n_prev: integer; the dimension of the previous layer            
+            activation: function; the activation function for this node
+            name: the name of this node 
+            initialization: function; the initialization strategy to use
+        """
+        self.W = initialization(n, n_prev)
+        self.b = np.zeros((n, 1))        
+        self.name = name        
         self.A = None
         self.Z = None
     
@@ -62,7 +62,6 @@ class Net:
         """
         assert(len(layer_dims) == len(activations))
         self.layers = [Layer(layer_dims[i], activations[i]) for i in range(len(layer_dims))]
-    
-    
+        
     def __assert_ok_topology(self, l_n, l_n_minus_1):
         l_n.shape[1] == l_n_minus_1.shape[0]
