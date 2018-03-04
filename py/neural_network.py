@@ -6,10 +6,11 @@ Created on Wed Feb 28 23:42:03 2018
 @author: mson
 """
 
+import activations as actv
+import initializations
+import numpy as np
+
 class Layer:
-    import activations as actv
-    import initializations
-    import numpy as np
 
     def __init__(self, name, n, n_prev, activation, 
                  initialization = initializations.random):
@@ -28,7 +29,7 @@ class Layer:
     def shape(self): return W.shape
     def n_features(self): return self.shape[0]
     
-    def propagate_forward_from(layer):
+    def propagate_forward_from(self, layer):
         """
         Performs forward propagation through this layer. 
         If this is layer n, then the layer argument is layer n - 1.
@@ -36,7 +37,7 @@ class Layer:
         self.Z = np.dot(self.W, layer.A) + self.b
         self.A = self.activation(self.Z)
         
-    def propagate_backward_to(layer):
+    def propagate_backward_to(self, layer):
         """
         Performs back propagation through this layer. 
         If this is layer n, then the layer argument is layer n - 1.
@@ -54,7 +55,6 @@ class Layer:
 class Net:
     """ A Net is made of layers
     """
-    import numpy as np
     def __init__(self, layer_dims, activations, learning_rate):
         """
         layer_dims: an array of layer dimensions
@@ -66,13 +66,14 @@ class Net:
         self.layers = []
         self.learning_rate = learning_rate
         for i in range(1, len(layer_dims)):
-            Layer(name = i,
-                  n = layer_dims[i], n_prev = layer_dims[i - 1],
-                  activation = activations[i])
+            self.layers.append(
+                Layer(name = i,
+                      n = layer_dims[i], n_prev = layer_dims[i - 1],
+                      activation = activations[i]))
 
     def model_forward(self):
         for i in range(1, self.n_layers()):
-            self.layers[i].propogate_forward_from(self.layers[i - 1])        
+            self.layers[i].propagate_forward_from(self.layers[i - 1])        
 
     def model_backward(self, y):
         AL = self.layers[-1].A

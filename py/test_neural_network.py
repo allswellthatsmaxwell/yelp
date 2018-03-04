@@ -6,6 +6,18 @@ Created on Fri Mar  2 16:58:57 2018
 @author: mson
 """
 
-import neural_network as nn
+import numpy as np
 
-layer_dims = [3, 4, 2]
+X = np.array([[1, 2, 3],
+              [3, 2.5, 9],
+              [8, 99, 4]])
+y = np.array([0, 1, 0])
+
+import neural_network as nn
+from activations import relu, sigmoid 
+
+layer_dims = [3, 4, 2, 1]
+
+net = nn.Net(layer_dims, [relu, relu, relu, sigmoid], 0.03)
+net.train(X, y)
+
