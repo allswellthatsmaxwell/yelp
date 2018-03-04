@@ -6,4 +6,6 @@ Created on Fri Mar  2 16:58:57 2018
 @author: mson
 """
 
-import passing_nn as nn
+import neural_network as nn
+
+layer_dims = [3, 4, 2]
