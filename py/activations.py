@@ -42,4 +42,4 @@ def sigmoid_prime(dA, Z):
 backward_map = {relu: relu_prime, sigmoid: sigmoid_prime}
 
 def derivative(activation):
-    backward_map[activation]
+    return backward_map[activation]
