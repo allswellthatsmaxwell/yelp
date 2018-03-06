@@ -10,6 +10,11 @@ import activations as actv
 import initializations
 import numpy as np
 
+class InputLayer:
+    
+    def __init__(self, n):
+        self.A = None
+
 class Layer:
 
     def __init__(self, name, n, n_prev, activation, 
@@ -20,6 +25,7 @@ class Layer:
             name: the name of this node 
             initialization: function; the initialization strategy to use
         """
+        self.activation = activation
         self.W = initialization(n, n_prev)
         self.b = np.zeros((n, 1))        
         self.name = name        
@@ -43,10 +49,10 @@ class Layer:
         If this is layer n, then the layer argument is layer n - 1.
         """
         m = layer.A.shape[1]
-        dZ = actv.derivative(self.activation)(self.dA) ## should this be self.dA or layer.dA?
+        dZ = actv.derivative(self.activation)(self.dA, self.Z) ## should this be self.dA or layer.dA?
         self.dW = (1 / m) * np.dot(dZ, layer.A.T)
         self.db = (1 / m) * np.sum(dZ, axis = 1, keepdims = True)
-        layer.dA = np.dot(W.T, dZ) ## this is uncomfortable, design-wise
+        layer.dA = np.dot(self.W.T, dZ) ## this is uncomfortable, design-wise
         
     def update_parameters(self, learning_rate):
         self.W -= learning_rate * self.dW
@@ -65,6 +71,7 @@ class Net:
         assert(len(layer_dims) == len(activations))
         self.layers = []
         self.learning_rate = learning_rate
+        self.layers.append(InputLayer(layer_dims[0]))
         for i in range(1, len(layer_dims)):
             self.layers.append(
                 Layer(name = i,
@@ -79,11 +86,12 @@ class Net:
         AL = self.layers[-1].A
         # derivative of cost with respect to final activation function
         dAL = - (np.divide(y, AL) - np.divide(1 - y, 1 - AL))
+        self.layers[-1].dA = dAL
         for i in reversed(range(1, self.n_layers())):
             self.layers[i].propagate_backward_to(self.layers[i - 1])
 
     def update_parameters(self):
-        for layer in self.layers:
+        for layer in self.layers[1:]: ## skip input layer
             layer.update_parameters(self.learning_rate)
             
     def train(self, X, y, iterations = 100):
@@ -91,6 +99,7 @@ class Net:
         for i in range(iterations):
             self.model_forward()
             cost = self.compute_cost(y)
+            print(cost)
             self.model_backward(y)
             self.update_parameters()
             
@@ -98,8 +107,8 @@ class Net:
         return len(self.layers)
     
     def compute_cost(self, y):
-        m = Y.shape[1]
-        AL = self.layers[-1]
+        m = y.shape[1]
+        AL = self.layers[-1].A
         cost =  - (1 / m) * np.sum(y * np.log(AL) + (1 - y) * np.log(1 - AL))
         return np.squeeze(cost)
     
