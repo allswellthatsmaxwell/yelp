@@ -26,18 +26,21 @@ X = np.array([[1, 2, 3],
               [3, 2.5, 9],
               [8, 99, 4]])
 y = np.array([0, 1, 0])
-
-
 layer_dims = [3, 4, 2, 1]
-
-net = nn.Net(layer_dims, [relu, relu, relu, sigmoid], 0.03)
+##net = nn.Net(layer_dims, [relu, relu, relu, sigmoid], 0.03)
 ##net.train(X, y)
 
-layer_dims = [4, 4, 2, 1]
+
 
 iris = datasets.load_iris()
 X, y = iris.data, iris.target
-X_trn, y_trn, X_val, y_val, X_tst, y_tst = trn_val_tst(X, y, 2/3, 1/6, 1/6)
+y_binary = np.array([0 if el in (0, 1) else 2 for el in y])
+X_trn, y_trn, X_val, y_val, X_tst, y_tst = trn_val_tst(X, y_binary, 2/3, 1/6, 1/6)
+layer_dims = [4, 4, 2, 1]
 iris_net = nn.Net(layer_dims, [relu, relu, relu, sigmoid], 0.03)
 
-iris_net.train(X_trn.T, y_trn, iterations = 500)
+iris_net.train(X_trn.T, y_trn, iterations = 10000, debug = True)
+yhat_trn = iris_net.predict(X_trn.T)
+
+
+
