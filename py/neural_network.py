@@ -63,15 +63,18 @@ class Net:
     """
     def __init__(self, layer_dims, activations, learning_rate):
         """
-        layer_dims: an array of layer dimensions
+        layer_dims: an array of layer dimensions. 
+                    including the input layer.
         activations: an array of activation 
                      functions (each from the activations module); 
                      one function per layer
         """
         assert(len(layer_dims) == len(activations))
-        self.layers = []
+        
         self.learning_rate = learning_rate
-        self.layers.append(InputLayer(layer_dims[0]))
+        self.is_trained = False
+        input_layer = InputLayer(layer_dims[0])
+        self.layers = [input_layer]
         for i in range(1, len(layer_dims)):
             self.layers.append(
                 Layer(name = i,
@@ -94,15 +97,38 @@ class Net:
         for layer in self.layers[1:]: ## skip input layer
             layer.update_parameters(self.learning_rate)
             
-    def train(self, X, y, iterations = 100):
+    def train(self, X, y, iterations = 100, debug = False):
+        """ 
+        Train the network.
+        If there are n features and m training examples, then:
+        X is a matrix n rows and m columns
+        y is an array of length m
+        returns an array of what the cost function's value was at each iteration
+        """
+        costs = []
         self.layers[0].A = X
         for i in range(iterations):
             self.model_forward()
             cost = self.compute_cost(y)
-            print(cost)
+            costs.append(cost)
+            if debug: print(cost)
             self.model_backward(y)
             self.update_parameters()
-            
+            if cost < 0.01:
+                if debug: print("cost converged at iteration", i)
+                break
+        self.is_trained = True
+        return costs
+
+    def predict(self, X):
+        assert(self.is_trained)
+        train_input_layer = self.layers[0].A
+        self.layers[0].A = X
+        self.model_forward()
+        yhat = self.layers[-1].A
+        self.layers[0].A = train_input_layer
+        return np.squeeze(yhat)
+    
     def n_layers(self): 
         return len(self.layers)
     
