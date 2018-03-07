@@ -107,7 +107,7 @@ class Net:
         return len(self.layers)
     
     def compute_cost(self, y):
-        m = y.shape[1]
+        m = len(y)
         AL = self.layers[-1].A
         cost =  - (1 / m) * np.sum(y * np.log(AL) + (1 - y) * np.log(1 - AL))
         return np.squeeze(cost)
