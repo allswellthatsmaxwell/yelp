@@ -1,6 +1,5 @@
 
 import csv, string, re, math, numpy as np
-import ffnn
 
 def get_words(text):
     """Removes all punctuation from text, and collapses all whitespace
