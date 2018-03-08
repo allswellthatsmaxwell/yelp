@@ -12,8 +12,8 @@ import numpy as np
 
 class InputLayer:
     
-    def __init__(self, n):
-        self.A = None
+    def __init__(self, A):
+        self.A = A
 
 class Layer:
 
@@ -73,28 +73,31 @@ class Net:
         
         self.learning_rate = learning_rate
         self.is_trained = False
-        input_layer = InputLayer(layer_dims[0])
-        self.layers = [input_layer]
+        self.hidden_layers = []
         for i in range(1, len(layer_dims)):
-            self.layers.append(
+            self.hidden_layers.append(
                 Layer(name = i,
                       n = layer_dims[i], n_prev = layer_dims[i - 1],
                       activation = activations[i]))
 
-    def model_forward(self):
+    def model_forward(self, input_layer):
+        self.hidden_layers[0].propagate_forward_from(input_layer)
         for i in range(1, self.n_layers()):
-            self.layers[i].propagate_forward_from(self.layers[i - 1])        
+            self.hidden_layers[i].propagate_forward_from(self.hidden_layers[i - 1])
 
+    def shape(self):
+        [l.W.shape for l in self.hidden_layers]
+            
     def model_backward(self, y):
-        AL = self.layers[-1].A
+        AL = self.hidden_layers[-1].A
         # derivative of cost with respect to final activation function
         dAL = - (np.divide(y, AL) - np.divide(1 - y, 1 - AL))
-        self.layers[-1].dA = dAL
-        for i in reversed(range(1, self.n_layers())):
-            self.layers[i].propagate_backward_to(self.layers[i - 1])
+        self.hidden_layers[-1].dA = dAL
+        for i in reversed(range(self.n_layers())):
+            self.hidden_layers[i].propagate_backward_to(self.hidden_layers[i - 1])
 
     def update_parameters(self):
-        for layer in self.layers[1:]: ## skip input layer
+        for layer in self.hidden_layers:
             layer.update_parameters(self.learning_rate)
             
     def train(self, X, y, iterations = 100, debug = False):
@@ -106,9 +109,9 @@ class Net:
         returns an array of what the cost function's value was at each iteration
         """
         costs = []
-        self.layers[0].A = X
+        input_layer = InputLayer(X)
         for i in range(iterations):
-            self.model_forward()
+            self.model_forward(input_layer)
             cost = self.compute_cost(y)
             costs.append(cost)
             if debug: print(cost)
@@ -122,19 +125,16 @@ class Net:
 
     def predict(self, X):
         assert(self.is_trained)
-        train_input_layer = self.layers[0].A
-        self.layers[0].A = X
-        self.model_forward()
-        yhat = self.layers[-1].A
-        self.layers[0].A = train_input_layer
+        self.model_forward(InputLayer(X))
+        yhat = self.hidden_layers[-1].A
         return np.squeeze(yhat)
     
     def n_layers(self): 
-        return len(self.layers)
+        return len(self.hidden_layers)
     
     def compute_cost(self, y):
         m = len(y)
-        AL = self.layers[-1].A
+        AL = self.hidden_layers[-1].A
         cost =  - (1 / m) * np.sum(y * np.log(AL) + (1 - y) * np.log(1 - AL))
         return np.squeeze(cost)
     
