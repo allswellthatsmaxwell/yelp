@@ -37,10 +37,10 @@ X, y = iris.data, iris.target
 y_binary = np.array([0 if el in (0, 1) else 2 for el in y])
 X_trn, y_trn, X_val, y_val, X_tst, y_tst = trn_val_tst(X, y_binary, 2/3, 1/6, 1/6)
 layer_dims = [4, 4, 2, 1]
-iris_net = nn.Net(layer_dims, [relu, relu, relu, sigmoid], 0.03)
+iris_net = nn.Net(layer_dims, [relu, relu, relu, sigmoid], 0.001)
 
-iris_net.train(X_trn.T, y_trn, iterations = 10000, debug = True)
-#yhat_trn = iris_net.predict(X_trn.T)
+iris_net.train(X_trn.T, y_trn, iterations = 5, debug = True)
+##yhat_trn = iris_net.predict(X_trn.T)
 
 
 

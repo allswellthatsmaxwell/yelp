@@ -27,7 +27,7 @@ class Layer:
         """
         self.activation = activation
         self.W = initialization(n, n_prev)
-        self.b = np.zeros((n, 1))        
+        self.b = np.zeros((n, 1))
         self.name = name        
         self.A = None
         self.Z = None
@@ -86,7 +86,7 @@ class Net:
             self.hidden_layers[i].propagate_forward_from(self.hidden_layers[i - 1])
 
     def shape(self):
-        [l.W.shape for l in self.hidden_layers]
+        return [l.W.shape for l in self.hidden_layers]
             
     def model_backward(self, y):
         AL = self.hidden_layers[-1].A
@@ -98,7 +98,7 @@ class Net:
 
     def update_parameters(self):
         for layer in self.hidden_layers:
-            layer.update_parameters(self.learning_rate)
+            layer.update_parameters(self.learning_rate)       
             
     def train(self, X, y, iterations = 100, debug = False):
         """ 
@@ -137,6 +137,24 @@ class Net:
         AL = self.hidden_layers[-1].A
         cost =  - (1 / m) * np.sum(y * np.log(AL) + (1 - y) * np.log(1 - AL))
         return np.squeeze(cost)
+
+    def gradient_check(self, eps = 1e-7):
+        W_vec  = self.stack_things(lambda lyr: self.matrix_to_vector(lyr.W))
+        dW_vec = self.stack_things(lambda lyr: self.matrix_to_vector(lyr.dW))
+        b_vec  = self.stack_things(lambda lyr: lyr.b.reshape(lyr.b.shape[0]))
+        db_vec = self.stack_things(lambda lyr: lyr.db.reshape(lyr.db.shape[0]))
+
+    def approximate_derivative(self, vec, i, eps):
+        """ not finished """
+        vec[i] += eps
+
+    def matrix_to_vector(self, mat):
+        """ reshape m-by-n matrix into an m*n-length array"""
+        vec_len = mat.shape[0] * mat.shape[1]
+        return mat.reshape(vec_len,)
     
-    def __assert_ok_topology(self, l_n, l_n_minus_1):
-        l_n.shape[1] == l_n_minus_1.shape[0]
+    def stack_things(self, action_fn):
+        """ apply action_fn to each layer in hidden_layers 
+            and concatenate the results into a single vector
+        """
+        return np.concatenate([action_fn(l) for l in self.hidden_layers])
