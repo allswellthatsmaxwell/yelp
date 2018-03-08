@@ -40,19 +40,20 @@ class Layer:
         Performs forward propagation through this layer. 
         If this is layer n, then the layer argument is layer n - 1.
         """
+        self.A_prev = layer.A.copy()
         self.Z = np.dot(self.W, layer.A) + self.b
         self.A = self.activation(self.Z)
         
-    def propagate_backward_to(self, layer):
+    def propagate_backward(self):
         """
         Performs back propagation through this layer. 
         If this is layer n, then the layer argument is layer n - 1.
         """
-        m = layer.A.shape[1]
-        dZ = actv.derivative(self.activation)(self.dA, self.Z) ## should this be self.dA or layer.dA?
-        self.dW = (1 / m) * np.dot(dZ, layer.A.T)
+        m = self.A_prev.shape[1]
+        dZ = actv.derivative(self.activation)(self.dA, self.Z)
+        self.dW = (1 / m) * np.dot(dZ, self.A_prev.T)
         self.db = (1 / m) * np.sum(dZ, axis = 1, keepdims = True)
-        layer.dA = np.dot(self.W.T, dZ) ## this is uncomfortable, design-wise
+        return np.dot(self.W.T, dZ) ## this is dA_prev
         
     def update_parameters(self, learning_rate):
         self.W -= learning_rate * self.dW
@@ -61,7 +62,7 @@ class Layer:
 class Net:
     """ A Net is made of layers
     """
-    def __init__(self, layer_dims, activations, learning_rate):
+    def __init__(self, layer_dims, activations):
         """
         layer_dims: an array of layer dimensions. 
                     including the input layer.
@@ -71,7 +72,6 @@ class Net:
         """
         assert(len(layer_dims) == len(activations))
         
-        self.learning_rate = learning_rate
         self.is_trained = False
         self.hidden_layers = []
         for i in range(1, len(layer_dims)):
@@ -91,16 +91,17 @@ class Net:
     def model_backward(self, y):
         AL = self.hidden_layers[-1].A
         # derivative of cost with respect to final activation function
-        dAL = - (np.divide(y, AL) - np.divide(1 - y, 1 - AL))
-        self.hidden_layers[-1].dA = dAL
-        for i in reversed(range(self.n_layers())):
-            self.hidden_layers[i].propagate_backward_to(self.hidden_layers[i - 1])
+        dA_prev = - (np.divide(y, AL) - np.divide(1 - y, 1 - AL))
+        for layer in reversed(self.hidden_layers):
+            layer.dA = dA_prev
+            dA_prev = layer.propagate_backward()
 
-    def update_parameters(self):
+    def update_parameters(self, learning_rate):
         for layer in self.hidden_layers:
-            layer.update_parameters(self.learning_rate)       
+            layer.update_parameters(learning_rate)       
             
-    def train(self, X, y, iterations = 100, debug = False):
+    def train(self, X, y, iterations = 100, learning_rate = 0.01,
+              debug = False):
         """ 
         Train the network.
         If there are n features and m training examples, then:
@@ -116,7 +117,7 @@ class Net:
             costs.append(cost)
             if debug: print(cost)
             self.model_backward(y)
-            self.update_parameters()
+            self.update_parameters(learning_rate)
             if cost < 0.01:
                 if debug: print("cost converged at iteration", i)
                 break
@@ -139,6 +140,7 @@ class Net:
         return np.squeeze(cost)
 
     def gradient_check(self, eps = 1e-7):
+        """ not finished """
         W_vec  = self.stack_things(lambda lyr: self.matrix_to_vector(lyr.W))
         dW_vec = self.stack_things(lambda lyr: self.matrix_to_vector(lyr.dW))
         b_vec  = self.stack_things(lambda lyr: lyr.b.reshape(lyr.b.shape[0]))
