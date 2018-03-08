@@ -23,6 +23,7 @@ def relu_prime(dA, Z):
     Returns: dZ -- Gradient of the cost with respect to Z
     """
     dZ = np.array(dA, copy = True) # just converting dz to a correct object.
+    assert(not dZ is dA)
     assert (dZ.shape == Z.shape)
     # When z <= 0, you should set dz to 0 as well. 
     dZ[Z <= 0] = 0
