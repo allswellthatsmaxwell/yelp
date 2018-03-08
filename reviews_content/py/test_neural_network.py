@@ -28,7 +28,7 @@ X = np.array([[1, 2, 3],
 y = np.array([0, 1, 0])
 layer_dims = [3, 4, 2, 1]
 ##net = nn.Net(layer_dims, [relu, relu, relu, sigmoid], 0.03)
-##net.train(X, y)
+##net.train(X, y, debug = True, iterations = 500)
 
 
 
@@ -40,7 +40,7 @@ layer_dims = [4, 4, 2, 1]
 iris_net = nn.Net(layer_dims, [relu, relu, relu, sigmoid], 0.03)
 
 iris_net.train(X_trn.T, y_trn, iterations = 10000, debug = True)
-yhat_trn = iris_net.predict(X_trn.T)
+#yhat_trn = iris_net.predict(X_trn.T)
 
 
 
