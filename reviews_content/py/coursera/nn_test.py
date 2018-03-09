@@ -2,6 +2,9 @@
 ## Code taken from the first course in Coursera's Deep Learning 
 ## specialization. None of the code in this file belongs to me.
 
+from nn_test_functions import *
+from ffnn import *
+
 np.random.seed(1)
 parameters = initialize_parameters([5,4,3])
 
@@ -61,4 +64,6 @@ print ("b2 = "+ str(parameters["b2"]))
 
 
 ### CONSTANTS ###
-layers_dims = [12288, 20, 7, 5, 1] #  4-layer model
+## layers_dims = [12288, 20, 7, 5, 1] #  4-layer model
+layers_dims = [4, 4, 2, 1]
+L_layer_model(X_trn.T, y_trn.reshape((1, len(y_trn))), layers_dims, activations = activations)

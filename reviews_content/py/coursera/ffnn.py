@@ -3,7 +3,6 @@
 ## specialization. None of the code in this file belongs to me.
 
 import numpy as np
-import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -166,7 +165,7 @@ def L_layer_model(X, Y, layers_dims,
 
     np.random.seed(1)
     costs = []
-    parameters = initialize_parameters(layer_dims)
+    parameters = initialize_parameters(layers_dims)
     
     for i in range(0, num_iterations):
         AL, caches = L_model_forward(X, parameters, activations)

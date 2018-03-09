@@ -14,6 +14,7 @@ class InputLayer:
     
     def __init__(self, A):
         self.A = A
+        self.name = "input"
 
 class Layer:
 
@@ -32,7 +33,7 @@ class Layer:
         self.A = None
         self.Z = None
     
-    def shape(self): return W.shape
+    def shape(self): return self.W.shape
     def n_features(self): return self.shape[0]
     
     def propagate_forward_from(self, layer):
@@ -40,6 +41,7 @@ class Layer:
         Performs forward propagation through this layer. 
         If this is layer n, then the layer argument is layer n - 1.
         """
+        print(str(self.name) + ".propagate_forward_from(" + str(layer.name) + ")")
         self.A_prev = layer.A.copy()
         self.Z = np.dot(self.W, layer.A) + self.b
         self.A = self.activation(self.Z)
@@ -47,8 +49,8 @@ class Layer:
     def propagate_backward(self):
         """
         Performs back propagation through this layer. 
-        If this is layer n, then the layer argument is layer n - 1.
         """
+        print(str(self.name) + ".propagate_backward()")
         m = self.A_prev.shape[1]
         dZ = actv.derivative(self.activation)(self.dA, self.Z)
         self.dW = (1 / m) * np.dot(dZ, self.A_prev.T)
@@ -56,6 +58,7 @@ class Layer:
         return np.dot(self.W.T, dZ) ## this is dA_prev
         
     def update_parameters(self, learning_rate):
+        print(str(self.name) + ".update_parameters()")
         self.W -= learning_rate * self.dW
         self.b -= learning_rate * self.db
 
