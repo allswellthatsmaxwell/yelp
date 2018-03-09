@@ -19,7 +19,7 @@ class InputLayer:
 class Layer:
 
     def __init__(self, name, n, n_prev, activation, 
-                 initialization = initializations.random):
+                 initialization = initializations.he):
         """ n: integer; the dimension of this layer
             n_prev: integer; the dimension of the previous layer            
             activation: function; the activation function for this node
@@ -41,7 +41,6 @@ class Layer:
         Performs forward propagation through this layer. 
         If this is layer n, then the layer argument is layer n - 1.
         """
-        print(str(self.name) + ".propagate_forward_from(" + str(layer.name) + ")")
         self.A_prev = layer.A.copy()
         self.Z = np.dot(self.W, layer.A) + self.b
         self.A = self.activation(self.Z)
@@ -50,7 +49,6 @@ class Layer:
         """
         Performs back propagation through this layer. 
         """
-        print(str(self.name) + ".propagate_backward()")
         m = self.A_prev.shape[1]
         dZ = actv.derivative(self.activation)(self.dA, self.Z)
         self.dW = (1 / m) * np.dot(dZ, self.A_prev.T)
@@ -58,7 +56,6 @@ class Layer:
         return np.dot(self.W.T, dZ) ## this is dA_prev
         
     def update_parameters(self, learning_rate):
-        print(str(self.name) + ".update_parameters()")
         self.W -= learning_rate * self.dW
         self.b -= learning_rate * self.db
 
@@ -102,14 +99,18 @@ class Net:
     def update_parameters(self, learning_rate):
         for layer in self.hidden_layers:
             layer.update_parameters(learning_rate)       
+
+    def standardize(self, X):
+        (X - mean(X) / std(X))
             
     def train(self, X, y, iterations = 100, learning_rate = 0.01,
               debug = False):
         """ 
         Train the network.
+        -- Arguments:
         If there are n features and m training examples, then:
-        X is a matrix n rows and m columns
-        y is an array of length m
+        X: a matrix n rows and m columns
+        y: an array of length m
         returns an array of what the cost function's value was at each iteration
         """
         costs = []
