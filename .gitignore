@@ -9,3 +9,5 @@ data/
 .#*
 *#
 Robj/
+*.pyc
+*.model
