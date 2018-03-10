@@ -17,6 +17,9 @@ def read_texts_stars(csv_path, maxrows = math.inf):
     first maxrows records in csv_path"""
     texts = []
     stars = []
+    useful = []
+    funny = []
+    cool = []
     nrow = 0
     with open(csv_path) as f:
         reader = csv.DictReader(f, delimiter = ',')
@@ -24,8 +27,11 @@ def read_texts_stars(csv_path, maxrows = math.inf):
             nrow += 1
             if nrow > maxrows: break
             texts.append(row['text'])
-            stars.append(row['stars'])
-    return texts, stars
+            stars.append(int(row['stars']))
+            useful.append(int(row['useful']))
+            funny.append(int(row['funny']))
+            cool.append(int(row['cool']))
+    return texts, stars, useful, funny, cool
 
 ## Stores a mapping of words to index positions
 class WordVec:
@@ -43,7 +49,8 @@ DATA_DIR = "../../data"
 PUNCT_REMOVES = str.maketrans('', '', string.punctuation)
 WS_COLLAPSE_RE = re.compile("\W+")
 
-texts, stars = read_texts_stars(f'{DATA_DIR}/yelp_review.csv', 500)
+texts, stars, useful, funny, cool = \
+    read_texts_stars(f'{DATA_DIR}/yelp_review.csv', 500)
 word_lists = [get_words(text).split() for text in texts]
 unique_words = list(set().union(*word_lists))
 
@@ -53,10 +60,11 @@ word_vecs = [WordVec(word_list) for word_list in word_lists]
 ## row per feature. Features are counts of how many times each word
 ## appears.
 word_mat = np.array([wv.word_vec for wv in word_vecs])
-high_score = np.array([1 if int(rating) >= 4 else 0 for rating in stars])
+high_score = np.array([1 if rating >= 4 else 0 for rating in stars])
+
 
 X_trn, y_trn, X_val, y_val, X_tst, y_tst = trn_val_tst(word_mat, high_score, 
-                                                       8/10,1/10, 1/10)
+                                                       8/10, 1/10, 1/10)
 
 net_shape = [word_mat.shape[1], 20, 7, 5, 1]
 activations = [avs.relu, avs.relu, avs.relu, avs.relu, avs.sigmoid]
@@ -64,19 +72,19 @@ activations = [avs.relu, avs.relu, avs.relu, avs.relu, avs.sigmoid]
 net = nn.Net(net_shape, activations)
 net.train(X = X_trn.T, y = y_trn, 
           iterations = 10, learning_rate = 0.01,
-          debug = False)
-#yhat_trn = net.predict(X_trn.T)
-#yyhat_trn = np.vstack((y_trn, yhat_trn)).T
-#auc_trn = roc_auc_score(y_trn, yhat_trn)
+          debug = True)
+yhat_trn = net.predict(X_trn.T)
+yyhat_trn = np.vstack((y_trn, yhat_trn)).T
+auc_trn = roc_auc_score(y_trn, yhat_trn)
 
-#yhat_val = net.predict(X_val.T)
-#yyhat_val = np.vstack((y_val, yhat_val)).T
-#yyhat_val = yyhat_val[yyhat_val[:,1].argsort()[::-1]]
-#auc_val = roc_auc_score(y_val, yhat_val)
+yhat_val = net.predict(X_val.T)
+yyhat_val = np.vstack((y_val, yhat_val)).T
+yyhat_val = yyhat_val[yyhat_val[:,1].argsort()[::-1]]
+auc_val = roc_auc_score(y_val, yhat_val)
 
-stars_vec = np.array([int(star) for star in stars])
-activations = [avs.relu, avs.relu, avs.relu, avs.relu, avs.relu]
-X_trn, y_trn, X_val, y_val, X_tst, y_tst = trn_val_tst(word_mat, stars_vec, 
-                                                       4/10, 3/10, 3/10)
-stars_net = nn.Net(net_shape, activations = activations, loss = losses.MSE)
-stars_net.train(X = X_trn.T, y = y_trn, iterations = 500, debug = True)
+#stars_vec = np.array([int(star) for star in stars])
+#activations = [avs.relu, avs.relu, avs.relu, avs.relu, avs.relu]
+#X_trn, y_trn, X_val, y_val, X_tst, y_tst = trn_val_tst(word_mat, stars_vec, 
+#                                                       4/10, 3/10, 3/10)
+#stars_net = nn.Net(net_shape, activations = activations, loss = losses.MSE)
+#stars_net.train(X = X_trn.T, y = y_trn, iterations = 500, debug = True)
