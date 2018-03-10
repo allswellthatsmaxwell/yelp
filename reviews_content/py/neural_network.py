@@ -9,6 +9,8 @@ Created on Wed Feb 28 23:42:03 2018
 import activations as actv
 import initializations
 import numpy as np
+import loss_functions
+
 
 class InputLayer:
     
@@ -62,17 +64,21 @@ class Layer:
 class Net:
     """ A Net is made of layers
     """
-    def __init__(self, layer_dims, activations):
+    def __init__(self, layer_dims, activations, loss = loss_functions.LogLoss()):
         """
         layer_dims: an array of layer dimensions. 
                     including the input layer.
         activations: an array of activation 
                      functions (each from the activations module); 
                      one function per layer
+        loss: the cost function. 
         """
         assert(len(layer_dims) == len(activations))
         
         self.is_trained = False
+        self.J = loss.cost
+        self.J_prime = loss.cost_gradient
+        
         self.hidden_layers = []
         for i in range(1, len(layer_dims)):
             self.hidden_layers.append(
@@ -81,6 +87,8 @@ class Net:
                       activation = activations[i]))
 
     def model_forward(self, input_layer):
+        """ Does one full forward pass through the network. """
+        
         self.hidden_layers[0].propagate_forward_from(input_layer)
         for i in range(1, self.n_layers()):
             self.hidden_layers[i].propagate_forward_from(self.hidden_layers[i - 1])
@@ -89,19 +97,18 @@ class Net:
         return [l.W.shape for l in self.hidden_layers]
             
     def model_backward(self, y):
+        """ Does one full backward pass through the network. """
         AL = self.hidden_layers[-1].A
         # derivative of cost with respect to final activation function
-        dA_prev = - (np.divide(y, AL) - np.divide(1 - y, 1 - AL))
+        dA_prev = self.J_prime(AL, y)
         for layer in reversed(self.hidden_layers):
             layer.dA = dA_prev
             dA_prev = layer.propagate_backward()
 
     def update_parameters(self, learning_rate):
+        """ Updates parameters on each layer. """
         for layer in self.hidden_layers:
             layer.update_parameters(learning_rate)       
-
-    def standardize(self, X):
-        (X - mean(X) / std(X))
             
     def train(self, X, y, iterations = 100, learning_rate = 0.01,
               debug = False):
@@ -115,9 +122,11 @@ class Net:
         """
         costs = []
         input_layer = InputLayer(X)
+        AL = self.hidden_layers[-1].A
         for i in range(iterations):
             self.model_forward(input_layer)
-            cost = self.compute_cost(y)
+            yhat = self.hidden_layers[-1].A
+            cost = self.J(yhat, y)
             costs.append(cost)
             if debug: print(cost)
             self.model_backward(y)
@@ -137,12 +146,6 @@ class Net:
     def n_layers(self): 
         return len(self.hidden_layers)
     
-    def compute_cost(self, y):
-        m = len(y)
-        AL = self.hidden_layers[-1].A
-        cost =  - (1 / m) * np.sum(y * np.log(AL) + (1 - y) * np.log(1 - AL))
-        return np.squeeze(cost)
-
     def gradient_check(self, eps = 1e-7):
         """ not finished """
         W_vec  = self.stack_things(lambda lyr: self.matrix_to_vector(lyr.W))
