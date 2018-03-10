@@ -5,6 +5,7 @@ import neural_network as nn
 import activations as avs
 from sklearn.metrics import roc_auc_score
 from prediction_utils import trn_val_tst
+import loss_functions as losses
 
 def get_words(text):
     """Removes all punctuation from text, and collapses all whitespace
@@ -38,7 +39,6 @@ class WordVec:
     def set_word_universe(cls, word_list):
         cls.words_ix = dict(zip(word_list, range(len(word_list))))
 
-
 DATA_DIR = "../../data"
 PUNCT_REMOVES = str.maketrans('', '', string.punctuation)
 WS_COLLAPSE_RE = re.compile("\W+")
@@ -63,19 +63,20 @@ activations = [avs.relu, avs.relu, avs.relu, avs.relu, avs.sigmoid]
 
 net = nn.Net(net_shape, activations)
 net.train(X = X_trn.T, y = y_trn, 
-          iterations = 500, learning_rate = 0.01,
-          debug = True)
+          iterations = 10, learning_rate = 0.01,
+          debug = False)
+#yhat_trn = net.predict(X_trn.T)
+#yyhat_trn = np.vstack((y_trn, yhat_trn)).T
+#auc_trn = roc_auc_score(y_trn, yhat_trn)
 
-yhat_trn = net.predict(X_trn.T)
-yyhat_trn = np.vstack((y_trn, yhat_trn)).T
-auc_trn = roc_auc_score(y_trn, yhat_trn)
+#yhat_val = net.predict(X_val.T)
+#yyhat_val = np.vstack((y_val, yhat_val)).T
+#yyhat_val = yyhat_val[yyhat_val[:,1].argsort()[::-1]]
+#auc_val = roc_auc_score(y_val, yhat_val)
 
-yhat_val = net.predict(X_val.T)
-yyhat_val = np.vstack((y_val, yhat_val)).T
-yyhat_val = yyhat_val[yyhat_val[:,1].argsort()[::-1]]
-auc_val = roc_auc_score(y_val, yhat_val)
-
-
-
-
-
+stars_vec = np.array([int(star) for star in stars])
+activations = [avs.relu, avs.relu, avs.relu, avs.relu, avs.relu]
+X_trn, y_trn, X_val, y_val, X_tst, y_tst = trn_val_tst(word_mat, stars_vec, 
+                                                       4/10, 3/10, 3/10)
+stars_net = nn.Net(net_shape, activations = activations, loss = losses.MSE)
+stars_net.train(X = X_trn.T, y = y_trn, iterations = 500, debug = True)
