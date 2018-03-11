@@ -143,6 +143,7 @@ class Net:
             layer.update_parameters(learning_rate, t, beta1, beta2)
             
     def train(self, X, y, iterations = 100, learning_rate = 0.01,
+              converge_at = 0.02,
               beta1 = 0.9, beta2 = 0.99,
               debug = False):
         """ 
@@ -167,7 +168,7 @@ class Net:
                 self.__adam(learning_rate, t = i, beta1 = beta1, beta2 = beta2)
             else:
                 self.__update_parameters(learning_rate)
-            if cost < 0.01:
+            if cost < converge_at:
                 if debug: print("cost converged at iteration", i)
                 break
         self.is_trained = True

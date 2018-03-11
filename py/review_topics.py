@@ -71,7 +71,7 @@ activations = [avs.relu, avs.relu, avs.relu, avs.relu, avs.sigmoid]
 
 net = nn.Net(net_shape, activations, use_adam = True)
 net.train(X = X_trn.T, y = y_trn, 
-          iterations = 2000, learning_rate = 0.01,
+          iterations = 200, learning_rate = 0.01,
           beta1 = 0.7, beta2 = 0.9,
           debug = True)
 yhat_trn = net.predict(X_trn.T)
