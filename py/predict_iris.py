@@ -22,11 +22,13 @@ X_trn, y_trn, X_val, y_val, X_tst, y_tst = trn_val_tst(X, y_binary,
 ilayer_dims = [X.shape[1], 4, 1]
 iris_net = nn.Net(ilayer_dims, [relu, relu, sigmoid], loss = losses.LogLoss())
 
-iris_net.train(X_trn.T, y_trn, iterations = 5000, learning_rate = 0.05, 
-               debug = False)
+iris_net.train(X_trn.T, y_trn, iterations = 200, learning_rate = 0.05, 
+               beta1 = 0.7, beta2 = 0.9,
+               debug = True)
 yhat_trn = iris_net.predict(X_trn.T)
 yhat_val = iris_net.predict(X_val.T)
 yyhat_trn = np.vstack((y_trn, yhat_trn)).T
 yyhat_val = np.vstack((y_val, yhat_val)).T
 
 auc_val = roc_auc_score(y_val, yhat_val)
+print("AUC =", auc_val)

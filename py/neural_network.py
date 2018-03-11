@@ -31,6 +31,12 @@ class Layer:
         self.activation = activation
         self.W = initialization(n, n_prev)
         self.b = np.zeros((n, 1))
+        ## exponentially-weighted averages for Adam gradient descent
+        self.vdW = np.zeros(self.W.shape)
+        self.vdb = np.zeros(self.b.shape)
+        self.sdW = np.zeros(self.W.shape)
+        self.sdb = np.zeros(self.b.shape)
+        
         self.name = name        
         self.A = None
         self.Z = None
@@ -57,14 +63,27 @@ class Layer:
         self.db = (1 / m) * np.sum(dZ, axis = 1, keepdims = True)
         return np.dot(self.W.T, dZ) ## this is dA_prev
         
-    def update_parameters(self, learning_rate):
-        self.W -= learning_rate * self.dW
-        self.b -= learning_rate * self.db
+    def update_parameters(self, learning_rate, t,
+                          beta1, beta2, eps = 1e-8):
+        """ 
+        update parameters W and b using Adam gradient descent.
+        """
+        assert(0 <= learning_rate <= 1
+               and 0 <= beta1 <= 1
+               and 0 <= beta2 <= 1
+               and t > 0)
+        self.vdW = (beta1 * self.vdW + (1 - beta1) * self.dW) / (1 - beta1**t)
+        self.vdb = (beta1 * self.vdb + (1 - beta1) * self.db) / (1 - beta1**t)
+        self.sdW = (beta2 * self.sdW + (1 - beta2) * (self.dW**2)) / (1 - beta2**t)
+        self.sdb = (beta2 * self.sdb + (1 - beta2) * (self.db**2)) / (1 - beta2**t)
+        self.W -= learning_rate * (self.vdW / (np.sqrt(self.sdW) + eps))
+        self.b -= learning_rate * (self.vdb / (np.sqrt(self.sdb) + eps))
 
 class Net:
     """ A Net is made of layers
     """
-    def __init__(self, layer_dims, activations, loss = loss_functions.LogLoss()):
+    def __init__(self, layer_dims, activations,
+                 loss = loss_functions.LogLoss()):
         """
         layer_dims: an array of layer dimensions. 
                     including the input layer.
@@ -105,12 +124,13 @@ class Net:
             layer.dA = dA_prev
             dA_prev = layer.propagate_backward()
 
-    def update_parameters(self, learning_rate):
-        """ Updates parameters on each layer. """
+    def update_parameters(self, learning_rate, t, beta1, beta2):
+        """ Updates parameters on each layer at epoch t. """
         for layer in self.hidden_layers:
-            layer.update_parameters(learning_rate)       
+            layer.update_parameters(learning_rate, t, beta1, beta2)
             
     def train(self, X, y, iterations = 100, learning_rate = 0.01,
+              beta1 = 0.9, beta2 = 0.99,
               debug = False):
         """ 
         Train the network.
@@ -123,14 +143,15 @@ class Net:
         costs = []
         input_layer = InputLayer(X)
         AL = self.hidden_layers[-1].A
-        for i in range(iterations):
+        for i in range(1, iterations + 1):
             self.model_forward(input_layer)
             yhat = self.hidden_layers[-1].A
             cost = self.J(yhat, y)
             costs.append(cost)
             if debug: print(cost)
             self.model_backward(y)
-            self.update_parameters(learning_rate)
+            self.update_parameters(learning_rate, t = i,
+                                   beta1 = beta1, beta2 = beta2)
             if cost < 0.01:
                 if debug: print("cost converged at iteration", i)
                 break
