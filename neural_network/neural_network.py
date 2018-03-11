@@ -3,7 +3,7 @@
 """
 Created on Wed Feb 28 23:42:03 2018
 
-@author: mson
+@author: Maxwell Peterson
 """
 
 import activations as actv
@@ -27,6 +27,7 @@ class Layer:
             activation: function; the activation function for this node
             name: the name of this node 
             initialization: function; the initialization strategy to use
+            use_adam: should Adam gradient descent be used to update W and b?
         """
         self.activation = activation
         self.W = initialization(n, n_prev)
@@ -65,6 +66,9 @@ class Layer:
         return np.dot(self.W.T, dZ) ## this is dA_prev
     
     def __update_gradient_descent(self, learning_rate):
+        """ 
+        update parameters W and b using vanilla gradient descent.
+        """
         self.W -= learning_rate * self.dW
         self.b -= learning_rate * self.db
     
@@ -97,6 +101,7 @@ class Net:
                      functions (each from the activations module); 
                      one function per layer
         loss: the cost function. 
+        use_adam: should Adam gradient descent be used when training?
         """
         assert(len(layer_dims) == len(activations))
 
@@ -114,13 +119,19 @@ class Net:
                       use_adam = use_adam))
 
     def __model_forward(self, input_layer):
-        """ Does one full forward pass through the network. """
+        """ 
+        Does one full forward pass through the network.        
+        """
         
         self.hidden_layers[0].propagate_forward_from(input_layer)
         for i in range(1, self.n_layers()):
             self.hidden_layers[i].propagate_forward_from(self.hidden_layers[i - 1])
 
     def shape(self):
+        """ 
+        returns a list containing the shape of the weight matrix 
+        in each layer 
+        """
         return [l.W.shape for l in self.hidden_layers]
             
     def __model_backward(self, y):
@@ -150,9 +161,18 @@ class Net:
         Train the network.
         -- Arguments:
         If there are n features and m training examples, then:
-        X: a matrix n rows and m columns
+        X: an n-by-m matrix 
         y: an array of length m
-        returns an array of what the cost function's value was at each iteration
+        Other arguments:
+        iterations: number of times to pass through the training set.
+        learning_rate: scaling factor for gradient descent step size
+        converge_at: value of the cost function at which to stop training
+        beta1, beta2: parameters that control how far back Adam-gradient-descent 
+               uses on each iteration to compute the average of the gradient.
+               Ignored if use_adam is False.
+        debug: Should various sorts of progress information be printed?
+
+        returns: an array of what the cost function's value was at each iteration
         """
         costs = []
         input_layer = InputLayer(X)
@@ -175,6 +195,12 @@ class Net:
         return costs
 
     def predict(self, X):
+        """
+        Use the trained network to output predictions for the examples in X.
+        Precondition: is_trained must be True.
+        X: an n-by-m matrix
+        returns: an m-length array of predictions
+        """
         assert(self.is_trained)
         self.__model_forward(InputLayer(X))
         yhat = self.hidden_layers[-1].A

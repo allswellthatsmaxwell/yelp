@@ -3,7 +3,7 @@
 """
 Created on Thu Mar  1 20:23:11 2018
 
-@author: mson
+@author: Maxwell Peterson
 
 Activation functions and their backward-propogation companions.
 """
