@@ -69,9 +69,9 @@ X_trn, y_trn, X_val, y_val, X_tst, y_tst = trn_val_tst(word_mat, high_score,
 net_shape = [word_mat.shape[1], 20, 7, 5, 1]
 activations = [avs.relu, avs.relu, avs.relu, avs.relu, avs.sigmoid]
 
-net = nn.Net(net_shape, activations)
+net = nn.Net(net_shape, activations, use_adam = True)
 net.train(X = X_trn.T, y = y_trn, 
-          iterations = 200, learning_rate = 0.01,
+          iterations = 2000, learning_rate = 0.01,
           beta1 = 0.7, beta2 = 0.9,
           debug = True)
 yhat_trn = net.predict(X_trn.T)

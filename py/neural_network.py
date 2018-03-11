@@ -20,7 +20,7 @@ class InputLayer:
 
 class Layer:
 
-    def __init__(self, name, n, n_prev, activation, 
+    def __init__(self, name, n, n_prev, activation, use_adam = False,
                  initialization = initializations.he):
         """ n: integer; the dimension of this layer
             n_prev: integer; the dimension of the previous layer            
@@ -31,6 +31,7 @@ class Layer:
         self.activation = activation
         self.W = initialization(n, n_prev)
         self.b = np.zeros((n, 1))
+        self.update_parameters = self.__update_adam if use_adam else self.__update_gradient_descent
         ## exponentially-weighted averages for Adam gradient descent
         self.vdW = np.zeros(self.W.shape)
         self.vdb = np.zeros(self.b.shape)
@@ -62,9 +63,13 @@ class Layer:
         self.dW = (1 / m) * np.dot(dZ, self.A_prev.T)
         self.db = (1 / m) * np.sum(dZ, axis = 1, keepdims = True)
         return np.dot(self.W.T, dZ) ## this is dA_prev
-        
-    def update_parameters(self, learning_rate, t,
-                          beta1, beta2, eps = 1e-8):
+    
+    def __update_gradient_descent(self, learning_rate):
+        self.W -= learning_rate * self.dW
+        self.b -= learning_rate * self.db
+    
+    def __update_adam(self, learning_rate, t,
+               beta1, beta2, eps = 1e-8):
         """ 
         update parameters W and b using Adam gradient descent.
         """
@@ -83,7 +88,8 @@ class Net:
     """ A Net is made of layers
     """
     def __init__(self, layer_dims, activations,
-                 loss = loss_functions.LogLoss()):
+                 loss = loss_functions.LogLoss(),
+                 use_adam = False):
         """
         layer_dims: an array of layer dimensions. 
                     including the input layer.
@@ -93,7 +99,8 @@ class Net:
         loss: the cost function. 
         """
         assert(len(layer_dims) == len(activations))
-        
+
+        self.use_adam = use_adam
         self.is_trained = False
         self.J = loss.cost
         self.J_prime = loss.cost_gradient
@@ -103,9 +110,10 @@ class Net:
             self.hidden_layers.append(
                 Layer(name = i,
                       n = layer_dims[i], n_prev = layer_dims[i - 1],
-                      activation = activations[i]))
+                      activation = activations[i],
+                      use_adam = use_adam))
 
-    def model_forward(self, input_layer):
+    def __model_forward(self, input_layer):
         """ Does one full forward pass through the network. """
         
         self.hidden_layers[0].propagate_forward_from(input_layer)
@@ -115,7 +123,7 @@ class Net:
     def shape(self):
         return [l.W.shape for l in self.hidden_layers]
             
-    def model_backward(self, y):
+    def __model_backward(self, y):
         """ Does one full backward pass through the network. """
         AL = self.hidden_layers[-1].A
         # derivative of cost with respect to final activation function
@@ -123,8 +131,13 @@ class Net:
         for layer in reversed(self.hidden_layers):
             layer.dA = dA_prev
             dA_prev = layer.propagate_backward()
-
-    def update_parameters(self, learning_rate, t, beta1, beta2):
+            
+    def __update_parameters(self, learning_rate):
+        """ Updates parameters on each layer at epoch t. """
+        for layer in self.hidden_layers:
+            layer.update_parameters(learning_rate)
+            
+    def __adam(self, learning_rate, t, beta1, beta2):
         """ Updates parameters on each layer at epoch t. """
         for layer in self.hidden_layers:
             layer.update_parameters(learning_rate, t, beta1, beta2)
@@ -144,14 +157,16 @@ class Net:
         input_layer = InputLayer(X)
         AL = self.hidden_layers[-1].A
         for i in range(1, iterations + 1):
-            self.model_forward(input_layer)
+            self.__model_forward(input_layer)
             yhat = self.hidden_layers[-1].A
             cost = self.J(yhat, y)
             costs.append(cost)
             if debug: print(cost)
-            self.model_backward(y)
-            self.update_parameters(learning_rate, t = i,
-                                   beta1 = beta1, beta2 = beta2)
+            self.__model_backward(y)
+            if self.use_adam:
+                self.__adam(learning_rate, t = i, beta1 = beta1, beta2 = beta2)
+            else:
+                self.__update_parameters(learning_rate)
             if cost < 0.01:
                 if debug: print("cost converged at iteration", i)
                 break
@@ -160,30 +175,31 @@ class Net:
 
     def predict(self, X):
         assert(self.is_trained)
-        self.model_forward(InputLayer(X))
+        self.__model_forward(InputLayer(X))
         yhat = self.hidden_layers[-1].A
         return np.squeeze(yhat)
     
     def n_layers(self): 
         return len(self.hidden_layers)
     
-    def gradient_check(self, eps = 1e-7):
+    def __gradient_check(self, eps = 1e-7):
         """ not finished """
-        W_vec  = self.stack_things(lambda lyr: self.matrix_to_vector(lyr.W))
-        dW_vec = self.stack_things(lambda lyr: self.matrix_to_vector(lyr.dW))
-        b_vec  = self.stack_things(lambda lyr: lyr.b.reshape(lyr.b.shape[0]))
-        db_vec = self.stack_things(lambda lyr: lyr.db.reshape(lyr.db.shape[0]))
+        W_vec  = self.__stack_things(lambda lyr: self.__matrix_to_vector(lyr.W))
+        dW_vec = self.__stack_things(lambda lyr: self.__matrix_to_vector(lyr.dW))
+        b_vec  = self.__stack_things(lambda lyr: lyr.b.reshape(lyr.b.shape[0]))
+        db_vec = self.__stack_things(lambda lyr: lyr.db.reshape(lyr.db.shape[0]))
 
-    def approximate_derivative(self, vec, i, eps):
+    def __approximate_derivative(self, vec, i, eps):
         """ not finished """
         vec[i] += eps
 
-    def matrix_to_vector(self, mat):
+    @staticmethod
+    def __matrix_to_vector(mat):
         """ reshape m-by-n matrix into an m*n-length array"""
         vec_len = mat.shape[0] * mat.shape[1]
         return mat.reshape(vec_len,)
     
-    def stack_things(self, action_fn):
+    def __stack_things(self, action_fn):
         """ apply action_fn to each layer in hidden_layers 
             and concatenate the results into a single vector
         """
