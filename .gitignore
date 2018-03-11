@@ -1,0 +1,8 @@
+*.*
+!*.py
+!*.R
+!*.Rmd
+!*.pdf
+!*.txt
+!.gitignore
+coursera/
